@@ -13,7 +13,14 @@ This file is the source of truth. Details live in on-demand context docs (table 
 | Code, identifiers, event names, pain codes, commits, config, scripts, this file, `docs/context/*` | English |
 | Dashboard UI | Bilingual **pt-BR + en**, switchable at runtime. No hardcoded user-facing strings (see `docs/context/architecture.md`) |
 | Chat with the lead, explanations, session summaries | Portuguese (pt-BR). Standard English technical terms are kept, with a translation on first use |
-| Learning docs: `docs/CONCEPTS.md`, `INTERVIEW.md`, `PAINS.md`, `DECISIONS.md` | pt-BR (study material for the lead) |
+| Learning/product docs: `docs/CONCEPTS.md`, `INTERVIEW.md`, `PAINS.md`, `DECISIONS.md`, `VISION.md`, `SESSIONS.md`, `interviews/` | pt-BR (study material for the lead) |
+
+## Session continuity (nothing may be lost between sessions)
+
+- **Start:** read `docs/SESSIONS.md` (latest entry) and `docs/VISION.md`.
+- **During:** when the lead answers questions (vision, requirements, oral exams), record answers verbatim in `docs/interviews/` right away, then update the derived doc. Commit and push at each milestone.
+- **End:** add an entry to the top of `docs/SESSIONS.md` (done · decisions · open items), commit and push.
+- Git: use the repo-local personal identity (`rafaelmmedeiros`), never the global work one.
 
 ## Inviolable rules
 
@@ -31,6 +38,7 @@ Also never: let the LLM touch the database; commit API keys, `.env` or the SQLit
 
 | Read | When |
 |---|---|
+| `docs/VISION.md` | Every session; any scope or priority decision |
 | `docs/context/mentoring.md` | Introducing any concept; writing CONCEPTS/INTERVIEW entries; ending a session (didactic summary); "me argua" / end of a roadmap stage |
 | `docs/context/pain-system.md` | **Start of every session** (dev-loop ritual); working on detectors, mitigations, `PAINS.md` |
 | `docs/context/architecture.md` | Creating projects/files, adding dependencies, persistence, dashboard/i18n, configuration, Docker |
