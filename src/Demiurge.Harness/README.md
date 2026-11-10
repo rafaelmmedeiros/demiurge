@@ -4,7 +4,7 @@
 
 **May depend on it:** `Demiurge.Host`, tests.
 
-**Depends on:** `Demiurge.Engine`; packages `Dapper`, `Microsoft.Data.Sqlite` (ADR-004).
+**Depends on:** `Demiurge.Engine`, `Demiurge.Agents`; packages `Dapper`, `Microsoft.Data.Sqlite` (ADR-004).
 
 **Must not:**
 - change world state except through `World.Step` / `World.FromEvents` / `World.FromSnapshot`;
@@ -13,3 +13,4 @@
 
 **Concepts implemented** (see `docs/CONCEPTS.md`):
 - Event sourcing — `Persistence/SqliteEventStore`, `Persistence/EventJson`, `SimulationSession`
+- Agent loop (perceive → decide in parallel with deadline → act), failure isolation — `TickRunner`

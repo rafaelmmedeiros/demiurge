@@ -4,6 +4,7 @@
     <PackageReference Include="Microsoft.Data.Sqlite" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Demiurge.Agents\Demiurge.Agents.csproj" />
     <ProjectReference Include="..\Demiurge.Engine\Demiurge.Engine.csproj" />
   </ItemGroup>
 </Project>

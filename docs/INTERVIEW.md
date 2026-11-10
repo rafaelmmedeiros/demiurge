@@ -97,3 +97,22 @@ Três. Crescimento: 7,3 eventos por tick, ~1 MB por 1000 ticks com 5 agentes, ~3
 
 **[Projeto] Por que Dapper e não EF Core?** (ADR-004)
 O event store tem três tabelas append-only e meia dúzia de queries. EF Core traria change tracking e migrations, pensados para entidades mutáveis — o oposto de eventos imutáveis. Dapper me deixa escrever o SQL, que num event store é simples e eu quero controlar, e só cuida de parâmetros e mapeamento. A alternativa considerada foi ADO.NET puro; o Dapper venceu por deixar o código do store só com SQL.
+
+---
+
+## Agente e laço
+
+**[Fundamentos] O que é um agente de IA? Qual a diferença para um chatbot?**
+Um agente percebe um ambiente, decide e age sobre ele, em laço: a consequência da ação volta como nova percepção. Um chatbot responde a uma pergunta e para; não tem ambiente nem continuidade própria. No DEMIURGE o ambiente é o `World`, o sensor é `Perceive()`, o programa é `IAgentBrain` e o atuador é a ação que o engine valida. Se o agente tenta comprar sem dinheiro, no tick seguinte ele "vê" `InsufficientMoney` — o erro vira entrada. O LLM, quando entrar, é só a função de decisão dentro desse laço.
+
+**[Projeto] Por que `IAgentBrain` devolve `AgentAction` e não `AgentDecision`?**
+Porque `AgentDecision` carrega o `AgentId`. Se o cérebro devolvesse a decisão completa, poderia — por bug ou alucinação de um LLM — propor uma ação em nome de outro agente, e o harness teria de conferir. Devolvendo só a ação, o harness monta `AgentDecision(perception.Self, ação)` e a impossibilidade é garantida pelo tipo, no mesmo espírito da `Perception` imutável.
+
+**[Profundidade] O que acontece se o LLM ficar 30 s sem responder no meio de um tick?**
+O tick não espera. O `TickRunner` cria um `CancellationTokenSource` com o prazo da decisão e aguarda cada cérebro com `WaitAsync(token)`: no prazo, para de esperar mesmo que o cérebro ignore o token. Aquele agente recebe `BrainFailure(Timeout)` e fica parado no tick; os outros agem normalmente e o tick fecha com `TickEnded`. Um teste usa um cérebro que nunca responde, com prazo de 100 ms, e verifica que o tick fecha. Depois, o circuit breaker da etapa 2 faz o LLM cair para o cérebro de regras.
+
+**[Profundidade] Como você prova que os cérebros rodam em paralelo?**
+Com uma barreira, não com cronômetro. Cada um dos 5 cérebros de teste incrementa um contador e espera até que os 5 tenham chegado. Se o harness chamasse em sequência, o primeiro esperaria para sempre pelos outros e estouraria o prazo. O teste exige zero falhas — só passa se as 5 chamadas estiverem em andamento ao mesmo tempo. Testes por tempo ("demorou menos que X") são instáveis em CI.
+
+**[Projeto] Os cérebros respondem em ordem aleatória. Isso não quebra o determinismo?**
+Não, porque a ordem de chegada é descartada: o engine ordena as decisões por `AgentId` e só depois embaralha com a seed. O que pode mudar o resultado é o prazo: numa execução ao vivo, um cérebro lento pode ficar de fora. Por isso a garantia é "mesma seed + mesmas decisões", e o mundo é reproduzível pelo log de eventos, que registra o que de fato aconteceu.

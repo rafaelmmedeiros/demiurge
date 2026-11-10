@@ -162,3 +162,45 @@ Números reais (seed 42, 5 agentes, 1000 ticks): 7.334 eventos (7,3/tick), paylo
 **Limitações conhecidas:** evolução de schema — renomear um evento ou campo quebra a leitura de eventos antigos (exigirá *upcasting* ou versão no `$type`); o log cresce sem limite (dor `STORE_GROWTH`); `Append` lê `MAX(seq)` a cada tick, aceitável com um único escritor, errado com escritores concorrentes; snapshot e eventos não são gravados na mesma transação (se cair entre os dois, retoma-se do snapshot anterior — correto, só mais lento).
 
 **Referências:** Martin Fowler, *Event Sourcing* (martinfowler.com, 2005); Greg Young, *CQRS Documents* (2010); Microsoft Learn, *Event Sourcing pattern* (Azure Architecture Center).
+
+---
+
+## Agente e o laço percepção → decisão → ação
+**Definição:** um agente percebe o ambiente por sensores e age sobre ele por atuadores; a função do agente mapeia percepções em ações (Russell & Norvig). A diferença para um chatbot é o **laço**: o agente age, o ambiente responde com consequências, e a consequência volta como nova percepção — sem um humano iniciando cada passo.
+
+**Como funciona:**
+
+| Conceito | No DEMIURGE |
+|---|---|
+| Ambiente | `World` (engine) |
+| Sensor | `World.Perceive(id)` → `Perception` (cópia imutável, só o que o agente pode saber) |
+| Programa do agente | `IAgentBrain.DecideAsync(Perception, CancellationToken)` → `AgentAction` |
+| Atuador | `World.Step(decisions)`: valida e aplica ou rejeita |
+| Consequência | novo estado + `LastRejection`, mensagens ouvidas, roubos vistos na próxima percepção |
+
+Um tick no harness (`TickRunner.RunTickAsync`):
+1. Seleciona quem pode agir: vivo e `AtPlace` (em trânsito não decide).
+2. Tira a percepção de cada um (todos do mesmo estado).
+3. Chama todos os cérebros **em paralelo** (`Task.WhenAll`), com um prazo (`CancellationTokenSource(timeout, TimeProvider)`).
+4. `DecideSafelyAsync` isola falhas: exceção → `BrainFailure(Exception)`; prazo estourado → `Timeout` (com `WaitAsync`, o tick para de esperar mesmo se o cérebro ignorar o token); `null` → `NullAction`. O agente com falha só fica parado naquele tick.
+5. Monta `AgentDecision(perception.Self, ação)` — o cérebro devolve só a ação, então não consegue agir em nome de outro agente.
+6. `SimulationSession.Step(decisions)` aplica e persiste; devolve `TickOutcome(Report, Failures)`.
+
+Cada agente tem sua instância de cérebro, criada uma vez por uma fábrica `Func<AgentId, IAgentBrain>` — permite misturar cérebros (regras, LLM, personalidades) no mesmo mundo.
+
+Dado real (teste): com o cérebro do agent-2 lançando `InvalidOperationException("brain exploded")`, o tick fecha com `TickEnded`, os outros 4 agem e o resultado traz `BrainFailure { AgentId = agent-2, Kind = Exception, Detail = "InvalidOperationException: brain exploded" }`. Com um cérebro que nunca responde e prazo de 100 ms, o tick fecha em ~100 ms com `Kind = Timeout`.
+
+**Onde está no projeto:** `src/Demiurge.Agents/IAgentBrain.cs`; `src/Demiurge.Harness/TickRunner.cs` (`RunTickAsync`, `DecideSafelyAsync`, `TickOutcome`, `BrainFailure`). Testes: `tests/Demiurge.Harness.Tests/TickRunnerTests.cs` (equivalência com chamar o engine direto; isolamento de exceção, timeout e null; agentes em trânsito não são consultados; paralelismo provado com uma barreira de 5 cérebros que só passa se todos começarem juntos; uma instância de cérebro por agente).
+
+**Por que usamos:** é o laço que transforma "um modelo que responde" em "um agente que vive". Separa o que muda entre etapas (o cérebro: regras → LLM → memória → planejamento) do que não muda (ambiente e laço). Regra 6: uma falha não para a simulação.
+
+**Alternativas e trade-offs:**
+- *Decisão síncrona* (`AgentAction Decide(...)`): bloqueia uma thread por agente durante a espera do LLM e não pode ser cancelada no meio. Descartado.
+- *Cérebro recebe o `World`*: quebra o engine autoritativo e a informação assimétrica. Descartado.
+- *Cérebro devolve `AgentDecision`* (como estava no CLAUDE.md original): permitiria um cérebro propor ação para outro agente; o harness teria de verificar. Trocado por `AgentAction`, garantia por tipo.
+- *Um loop/ator por agente, em tempo real*: perde determinismo (ver *Simulação baseada em ticks*).
+- *Microsoft Agent Framework / Semantic Kernel*: orquestram agentes de LLM com tools que mutam estado — conflita com o engine autoritativo. Só com dor.
+
+**Limitações conhecidas:** o prazo é tempo real, então numa execução ao vivo um cérebro lento muda quais decisões chegam ao engine — o resultado continua reproduzível pelos eventos gravados, mas não por "seed + cérebros". Um cérebro que ignora o token continua rodando em segundo plano depois do prazo (o tick só para de esperar). `BrainFailure` ainda não é persistido; vira dor (`TICK_EXCEPTION`, `TICK_OVERRUN`) com os detectores. Nenhuma mitigação ainda: o agente com falha simplesmente não age.
+
+**Referências:** Russell & Norvig, *Artificial Intelligence: A Modern Approach*, cap. 2 (Intelligent Agents); Microsoft Learn, *Task cancellation* e `Task.WaitAsync`.

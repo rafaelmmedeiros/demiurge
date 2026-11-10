@@ -10,6 +10,7 @@ Baseline and versions reviewed in `docs/DECISIONS.md` ADR-003.
 - Persistence: SQLite on a Docker volume (`/data/demiurge.db`) via **Dapper** + `Microsoft.Data.Sqlite` 10.x (ADR-004). Tables `worlds`, `events` (append-only, JSON payload with `$type`), `snapshots` (every 100 ticks). JSON format lives in `Demiurge.Harness/Persistence/EventJson.cs`, never in the engine.
 - Dashboard: plain HTML + JS in `wwwroot` with the SignalR JS client. No front-end framework on Day 1.
 - LLM access: `Microsoft.Extensions.AI` (`IChatClient`). Agent Framework only if a pain justifies it.
+- Running one test project: `dotnet test --project tests/<Name>/<Name>.csproj` (MTP syntax); `dotnet test` runs the whole solution.
 - Tests: xUnit v3 (package line 4.x) on Microsoft Testing Platform v2 (`global.json` → `test.runner`). Test projects are `OutputType Exe`.
 
 ## Layout

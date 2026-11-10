@@ -61,9 +61,10 @@ The world is a graph of places, not a grid (see `docs/VISION.md` §4, `docs/DECI
 
 ## Core contracts
 ```csharp
+// Demiurge.Agents. Returns only the action; the harness binds it to perception.Self.
 public interface IAgentBrain
 {
-    Task<AgentDecision> DecideAsync(Perception perception, CancellationToken ct);
+    Task<AgentAction> DecideAsync(Perception perception, CancellationToken ct);
 }
 
 public interface IPainDetector

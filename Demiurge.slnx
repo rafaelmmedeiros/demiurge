@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Demiurge.Agents/Demiurge.Agents.csproj" />
     <Project Path="src/Demiurge.Engine/Demiurge.Engine.csproj" />
     <Project Path="src/Demiurge.Harness/Demiurge.Harness.csproj" />
   </Folder>
