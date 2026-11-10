@@ -9,7 +9,7 @@ Open **http://localhost:8080** and see: tick counter advancing, a canvas with pl
 ## Done criteria
 - [x] `docker compose up -d --build` starts without errors (verified on the lead's machine; not yet on a clean one).
 - [x] `GET http://localhost:8080/health` returns 200.
-- [x] Dashboard at `/` updates in real time via SignalR (hub push covered by test; visual check by the lead pending).
+- [x] Dashboard at `/` updates in real time via SignalR (hub push covered by test; visual check approved by the lead on 2026-11-10).
 - [x] Dashboard switchable between pt-BR and en, no hardcoded strings (key-coverage test).
 - [x] Places graph (4 places, complete graph with travel times); pawns drawn on canvas, interpolated along edges while in transit.
 - [x] 5 agents living with `RuleBasedBrain`, no LLM; actions respect location rules (`world.md`).

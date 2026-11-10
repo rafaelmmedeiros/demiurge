@@ -36,7 +36,7 @@ Formato: o que foi feito · decisões · pendências.
 **Pendências**
 - Líder revisar o rascunho do pitch (`VISION.md` §8).
 - Próximo passo: **arguição da etapa 1** (5–10 perguntas do `INTERVIEW.md`, uma por vez). Depois, etapa 2 (LLM), já liberada pelas dores medidas (ADR-005).
-- Líder: abrir http://localhost:8080 e conferir o dashboard visualmente (canvas, troca de idioma, botões) — não há teste automatizado do visual.
+- Dashboard conferido visualmente pelo líder: ok.
 - Verificar `docker compose up` numa máquina limpa.
 - Medições dos conceitos 3–6 vieram de um console descartável no scratchpad (exemplos ilustrativos). As do conceito 7 foram reproduzidas pelo `tools/Demiurge.Probe`.
 - Economia: sem espaço, generosa demais (~800 de dinheiro por agente). Com o grafo, a mesma política simples entra em colapso: 4 de 5 mortos em 300 ticks, presos no mercado sem dinheiro e exaustos (`InsufficientMoney` 56×, `Exhausted` 73×) — só o ladrão sobrevive. É comportamento da política, não bug do engine; é o tipo de sinal que os detectores `REPETITION_LOOP`/`ACTION_REJECTION_RATE` devem capturar.
