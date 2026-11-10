@@ -1,0 +1,25 @@
+# .NET build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+TestResults/
+
+# Secrets (CLAUDE.md: never commit API keys)
+.env
+
+# SQLite world database (CLAUDE.md: never commit the DB)
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Claude Code local settings
+.claude/settings.local.json
