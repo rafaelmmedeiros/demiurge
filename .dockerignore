@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+**/TestResults/
+.git/
+.vs/
+.vscode/
+.idea/
+data/
+docs/
+tests/
+tools/
+*.db
+*.db-shm
+*.db-wal
+.env

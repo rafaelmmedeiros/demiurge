@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demiurge</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>DEMIURGE</h1>
+    <div class="clock">
+      <span data-i18n="ui.tick">Tick</span> <strong id="tick">0</strong>
+      <span class="muted" id="simTime"></span>
+    </div>
+    <div class="status">
+      <span id="connection" class="pill" data-state="connecting"></span>
+      <span id="runState" class="pill"></span>
+    </div>
+    <div class="controls">
+      <button id="btnToggle"></button>
+      <button id="btnStep" data-i18n="ui.step">Step</button>
+      <form id="newWorld" class="inline">
+        <label><span data-i18n="ui.seed">Seed</span> <input id="seed" type="number" min="0" value="42"></label>
+        <label><span data-i18n="ui.agents">Agents</span> <input id="agents" type="number" min="1" max="100" value="5"></label>
+        <button type="submit" data-i18n="ui.newWorld">New world</button>
+      </form>
+      <select id="lang" aria-label="Language">
+        <option value="pt-BR">PT-BR</option>
+        <option value="en">EN</option>
+      </select>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card map">
+      <h2 data-i18n="ui.map">Map</h2>
+      <canvas id="map"></canvas>
+    </section>
+
+    <section class="card agents">
+      <h2 data-i18n="ui.agentsTitle">Agents</h2>
+      <table>
+        <thead>
+          <tr>
+            <th data-i18n="ui.agent">Agent</th>
+            <th data-i18n="ui.where">Where</th>
+            <th data-i18n="ui.hunger">Hunger</th>
+            <th data-i18n="ui.energy">Energy</th>
+            <th data-i18n="ui.food">Food</th>
+            <th data-i18n="ui.money">Money</th>
+          </tr>
+        </thead>
+        <tbody id="agentRows"></tbody>
+      </table>
+      <p class="muted" id="marketLine"></p>
+    </section>
+
+    <section class="card pains">
+      <h2 data-i18n="ui.pains">Pains</h2>
+      <ol id="painList"></ol>
+      <p class="muted" id="noPains" data-i18n="ui.noPains">No pains measured yet.</p>
+    </section>
+
+    <section class="card feed">
+      <h2>
+        <span data-i18n="ui.feed">Events</span>
+        <label class="small"><input type="checkbox" id="showAll"> <span data-i18n="ui.showAll">show all</span></label>
+      </h2>
+      <ol id="feed"></ol>
+    </section>
+  </main>
+
+  <script src="lib/signalr.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

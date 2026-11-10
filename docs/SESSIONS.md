@@ -30,11 +30,13 @@ Formato: o que foi feito · decisões · pendências.
 - Conceito 7 (rule-based / utility AI) explicado, aprovado e implementado: `RuleBasedBrain` com 4 objetivos pontuados, notas públicas (`Score`), fraco de propósito. Novo projeto `tests/Demiurge.Agents.Tests`. 71 testes verdes. Medição em 10 seeds × 1000 ticks: 41/50 mortes, 0 paradoxo da fome, 0% rejeição, 0 conversas, 55% de troca de objetivo, 0,13 trabalho por viagem.
 - ADR-005 aprovado: nova dor `GOAL_OSCILLATION`; gatilho da etapa 2 = dores comportamentais medidas (`RESOURCE_COLLAPSE`, `GOAL_OSCILLATION`, `NO_SOCIAL_CONTACT`); medições reproduzíveis via detectores no conceito 8.
 - Conceito 8 (harness, observabilidade, detectores) explicado, aprovado e implementado: `IPainDetector.Inspect(TickContext)` (contrato ajustado com ok do líder), 8 detectores com disparo por borda, `PainRegistry` com ranking e tabela `pains`, `InMemorySimulation`, ferramenta `tools/Demiurge.Probe`. Medição reproduzida: `GOAL_OSCILLATION` 8/10, `NO_SOCIAL_CONTACT` 10/10, `RESOURCE_COLLAPSE` 9/10 seeds; paradoxo, loop e rejeição = 0. Criado `docs/PAINS.md`. 86 testes verdes.
+- Conceito 9 (dashboard, streaming, Docker) explicado, aprovado e implementado: `Demiurge.Host` (SimulationHost com escritor único por `Channel`, `WorldView`, SignalR, API do modo deus, health), dashboard com canvas + i18n pt-BR/en, Dockerfile + compose (ADR-006). `docker compose up -d --build` verificado: health 200, ticks a ~1/s, pause/step/resume, novo mundo, restart mantém o mundo. Conceitos i18n e pain-driven development documentados. 98 testes verdes. Critérios do dia 1 cumpridos, exceto a arguição.
 - Revisão da stack (ADR-003): .NET 10 LTS (11 saiu hoje, mesmo fim de suporte), `.slnx`, xUnit v3 4.0.3 em Microsoft Testing Platform v2, Central Package Management.
 
 **Pendências**
 - Líder revisar o rascunho do pitch (`VISION.md` §8).
-- Ainda não existe `docker-compose.yml`/Host: a regra 5 (sobe com um comando) passa a valer quando o Host entrar (conceito 9 / dashboard). Avaliar antecipar um Host mínimo com `/health`.
-- Próximo conceito: 9 — dashboard (Host ASP.NET Core, SignalR, canvas, i18n) + Docker (`docker compose up`, regra 5). Depois: arguição da etapa 1.
+- Próximo passo: **arguição da etapa 1** (5–10 perguntas do `INTERVIEW.md`, uma por vez). Depois, etapa 2 (LLM), já liberada pelas dores medidas (ADR-005).
+- Líder: abrir http://localhost:8080 e conferir o dashboard visualmente (canvas, troca de idioma, botões) — não há teste automatizado do visual.
+- Verificar `docker compose up` numa máquina limpa.
 - Medições dos conceitos 3–6 vieram de um console descartável no scratchpad (exemplos ilustrativos). As do conceito 7 foram reproduzidas pelo `tools/Demiurge.Probe`.
 - Economia: sem espaço, generosa demais (~800 de dinheiro por agente). Com o grafo, a mesma política simples entra em colapso: 4 de 5 mortos em 300 ticks, presos no mercado sem dinheiro e exaustos (`InsufficientMoney` 56×, `Exhausted` 73×) — só o ladrão sobrevive. É comportamento da política, não bug do engine; é o tipo de sinal que os detectores `REPETITION_LOOP`/`ACTION_REJECTION_RATE` devem capturar.

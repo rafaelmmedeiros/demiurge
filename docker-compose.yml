@@ -1,0 +1,17 @@
+# One command: docker compose up -d --build  →  http://localhost:8080
+# No API key and no configuration needed (CLAUDE.md rule 5). Optional overrides go in .env.
+services:
+  demiurge:
+    build: .
+    image: demiurge:local
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - demiurge-data:/data
+    restart: unless-stopped
+
+volumes:
+  demiurge-data:

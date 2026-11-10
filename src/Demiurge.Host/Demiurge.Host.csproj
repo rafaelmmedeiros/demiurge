@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\Demiurge.Agents\Demiurge.Agents.csproj" />
+    <ProjectReference Include="..\Demiurge.Harness\Demiurge.Harness.csproj" />
+  </ItemGroup>
+</Project>

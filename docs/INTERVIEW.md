@@ -154,3 +154,25 @@ Duas garantias. Determinismo: a mesma seed produz as mesmas dores (há um teste 
 
 **[Profundidade] Um detector com bug pode derrubar a simulação?**
 Não. O `TickRunner` executa cada detector dentro de try/catch; se um lança exceção, ele é pulado naquele tick e a falha vira um sinal `TICK_EXCEPTION` com a mitigação "Detector skipped for this tick". Observabilidade não pode ser um ponto de falha do sistema observado.
+
+---
+
+## Dashboard, host e i18n
+
+**[Projeto] Como o dashboard recebe o estado e por que ele não altera o mundo?**
+A simulação roda num `BackgroundService` que é o único escritor do mundo. Ao fim de cada tick ele publica um `WorldView` imutável e empurra pelo SignalR uma mensagem `tick` com a view e os eventos do tick (~2 KB com 5 agentes). O browser só desenha. Comandos do modo deus vão por HTTP e viram mensagens numa fila; quem executa é o laço. Assim a apresentação pode ser trocada — Blazor, Unity — sem mexer na simulação.
+
+**[Profundidade] O que acontece se eu clicar "avançar" enquanto um tick está rodando?**
+Nada conflita. O endpoint não toca no mundo: escreve um `StepCommand` num `Channel` e espera o `TaskCompletionSource` dele. O laço da simulação só lê o canal entre ticks, então o step roda depois do tick atual, e a resposta HTTP traz a view resultante. É o padrão de ator: um dono do estado, uma caixa de entrada, processamento sequencial. Com `lock`, a trava ficaria presa durante os segundos de espera de um LLM.
+
+**[Projeto] Por que SignalR e não polling ou SSE?**
+Polling a cada segundo dá até um segundo de atraso e uma requisição por cliente por segundo, mesmo sem mudança. SSE resolveria hoje — o fluxo é só servidor→browser —, é nativo e mais simples. Escolhi SignalR porque já estava na stack do projeto, trata reconexão e fallback de transporte, e permite mensagens nos dois sentidos se o modo deus precisar. Se só houvesse push, SSE seria uma escolha igualmente boa.
+
+**[Projeto] Como você garante que o sistema sobe com um comando?**
+`docker compose up -d --build`: Dockerfile multi-stage (SDK compila, runtime roda como não-root), um serviço, porta 8080, volume para o SQLite, `.env` opcional — sem chave nem configuração. Defaults de tudo em `DemiurgeOptions`. Ao subir, retoma o último mundo do volume. Testei: `/health` 200, ticks avançando, e um `docker compose restart` mantém o mesmo mundo.
+
+**[Fundamentos] Como funciona a i18n do dashboard?**
+Dois dicionários JSON (pt-BR e en) com chaves como `event.Worked` ou `pain.GOAL_OSCILLATION`. A API e os eventos ficam em inglês; o browser traduz identificadores em rótulos e preenche modelos como "{agentId} trabalhou e ganhou {earned}". O idioma vem da escolha salva, senão do navegador. Um teste por reflexão garante que todo tipo de evento, ação, motivo de rejeição e código de dor tem tradução nos dois idiomas — um evento novo sem tradução quebra os testes.
+
+**[Profundidade] Que cuidado de segurança o dashboard já precisa ter, mesmo sem LLM?**
+O texto de `Talked` vem de um agente e, com LLM, será texto gerado — pode conter HTML ou script. O feed insere esse texto com `textContent`, nunca `innerHTML`, então ele é exibido literalmente. É a mesma lição da prompt injection, ao contrário: saída de modelo é entrada não confiável para o resto do sistema.

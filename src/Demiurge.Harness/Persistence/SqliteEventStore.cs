@@ -126,14 +126,14 @@ public sealed class SqliteEventStore
         transaction.Commit();
     }
 
-    /// <summary>Events of a world in stream order, optionally only those after a tick.</summary>
-    public IReadOnlyList<WorldEvent> ReadEvents(long worldId, long afterTick = -1)
+    /// <summary>Events of a world in stream order, optionally only those after a tick, optionally the first N.</summary>
+    public IReadOnlyList<WorldEvent> ReadEvents(long worldId, long afterTick = -1, int limit = -1)
     {
         using var connection = Open();
         return connection
             .Query<string>(
-                "SELECT payload FROM events WHERE world_id = @worldId AND tick > @afterTick ORDER BY seq",
-                new { worldId, afterTick })
+                "SELECT payload FROM events WHERE world_id = @worldId AND tick > @afterTick ORDER BY seq LIMIT @limit",
+                new { worldId, afterTick, limit }) // LIMIT -1 = no limit in SQLite
             .Select(EventJson.DeserializeEvent)
             .ToList();
     }

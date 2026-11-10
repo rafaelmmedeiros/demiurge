@@ -40,7 +40,8 @@ Baseline and versions reviewed in `docs/DECISIONS.md` ADR-003.
 └── tests/
     ├── Demiurge.Engine.Tests/
     ├── Demiurge.Agents.Tests/
-    └── Demiurge.Harness.Tests/
+    ├── Demiurge.Harness.Tests/
+    └── Demiurge.Host.Tests/
 ```
 
 Dependency direction: `Host → Harness → Agents → Engine`. Engine depends on nothing.
@@ -55,7 +56,16 @@ Dependency direction: `Host → Harness → Agents → Engine`. Engine depends o
 - Initial locale: saved choice (localStorage) → `navigator.language` → `en`. Language toggle in the header.
 - Domain identifiers (event types, pain codes, action names) stay English in data and API; the UI maps them to translated labels via keys (e.g. `event.TheftWitnessed`, `pain.STARVATION_PARADOX`). Unknown keys fall back to the raw identifier.
 - API responses and logs are not localized.
-- i18n is a concept: document it in `docs/CONCEPTS.md` before implementing (rule 7).
+- Implemented: `wwwroot/i18n/*.json`, `app.js` (`t`, `describeEvent`); key coverage enforced by `HostTests`.
+
+## Host
+- `SimulationHost` (BackgroundService) is the single writer of the world; god-mode endpoints enqueue `GodCommand`s on a `Channel` (ADR-006). Readers use the immutable `WorldView`.
+- On start: resume the latest world in the database, else create one from config.
+- SignalR hub `/hubs/world`, message `tick` = `{ world, events }`. JS client vendored at `wwwroot/lib/signalr.min.js` (10.0.11).
+- Agent-provided text goes into the DOM with `textContent` only.
+
+## Docker
+- `Dockerfile` multi-stage (`sdk:10.0` → `aspnet:10.0`, non-root `app` user, `DEMIURGE__DatabasePath=/data/demiurge.db`); `docker-compose.yml` single service, port 8080, volume `demiurge-data`, optional `.env`. Ollama profile arrives in stage 2 (ADR-006).
 
 ## Configuration
 All via environment variables (prefix `DEMIURGE__`), with working defaults:
@@ -65,10 +75,12 @@ All via environment variables (prefix `DEMIURGE__`), with working defaults:
 | `DEMIURGE__Seed` | `42` | World seed |
 | `DEMIURGE__AgentCount` | `5` | Initial agents |
 | `DEMIURGE__TickIntervalMs` | `1000` | Real time between ticks (1 tick = 1 simulated hour) |
-| `DEMIURGE__Brain` | `Rules` | `Rules` or `Llm` |
+| `DEMIURGE__Brain` | `Rules` | `Rules` (`Llm` in stage 2) |
+| `DEMIURGE__DatabasePath` | `data/demiurge.db` (container: `/data/demiurge.db`) | SQLite file |
+| `DEMIURGE__StartPaused` | `false` | Start with the clock paused |
 | `DEMIURGE__Llm__Provider` | — | `Ollama`, `Anthropic` or `OpenAICompatible` |
 | `DEMIURGE__Llm__Endpoint` | — | Provider URL |
 | `DEMIURGE__Llm__Model` | — | Model name |
 | `DEMIURGE__Llm__ApiKey` | — | Never commit; use `.env` (gitignored) |
 
-Optional local LLM via compose profile: `docker compose --profile llm up -d` also starts an Ollama container. Day 1 does not depend on it.
+Optional local LLM via compose profile (`docker compose --profile llm up -d`) arrives in stage 2 (ADR-006). Day 1 does not depend on it.

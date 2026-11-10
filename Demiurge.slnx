@@ -3,11 +3,13 @@
     <Project Path="src/Demiurge.Agents/Demiurge.Agents.csproj" />
     <Project Path="src/Demiurge.Engine/Demiurge.Engine.csproj" />
     <Project Path="src/Demiurge.Harness/Demiurge.Harness.csproj" />
+    <Project Path="src/Demiurge.Host/Demiurge.Host.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Demiurge.Agents.Tests/Demiurge.Agents.Tests.csproj" />
     <Project Path="tests/Demiurge.Engine.Tests/Demiurge.Engine.Tests.csproj" />
     <Project Path="tests/Demiurge.Harness.Tests/Demiurge.Harness.Tests.csproj" />
+    <Project Path="tests/Demiurge.Host.Tests/Demiurge.Host.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Demiurge.Probe/Demiurge.Probe.csproj" />

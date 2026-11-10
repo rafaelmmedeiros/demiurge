@@ -120,3 +120,21 @@ Versões conferidas no nuget.org / npm nesta data. Só entra no projeto o que a 
 **Consequências:** o roadmap passa a ser corrigido por dado, não por suposição. A comparação da etapa 2 fica definida: o `LlmBrain`, com a mesma percepção, reduz mortalidade e oscilação e passa a conversar? A que custo?
 
 **Como explicar numa entrevista:** "Eu tinha suposto quais falhas o cérebro de regras teria. Medi e as duas que eu esperava deram zero; a falha real era oscilação de objetivo, que nem tinha nome no meu catálogo. Criei a dor, mudei o gatilho da etapa seguinte e marquei os números como provisórios até serem reproduzíveis por um comando. O roadmap obedece à medição."
+
+---
+
+## ADR-006 — Host: escritor único, SignalR, testes de integração, Ollama adiado
+**Data:** 2026-11-10 · **Status:** aceita · **Aprovada pelo líder**
+
+**Motivo:** conceito 9 — o dia 1 precisa de dashboard em tempo real e de `docker compose up` (regra 5).
+
+**Decisões e alternativas**
+1. **Comandos do modo deus por `Channel` de escritor único** consumido pelo laço da simulação. Alternativa: `lock` em volta do mundo — seguraria a trava durante a espera de um LLM.
+2. **SignalR** para push (`/hubs/world`). Alternativas: polling (latência, requisições) e SSE (suficiente hoje, só servidor→cliente). SignalR estava na stack e permite dois sentidos.
+3. **Cliente JS `@microsoft/signalr` 10.0.11 versionado no repositório** (`wwwroot/lib`), alinhado ao servidor ASP.NET Core 10; sem CDN, sobe offline.
+4. **`tests/Demiurge.Host.Tests`** com `Microsoft.AspNetCore.Mvc.Testing` 10.0.15 e `Microsoft.AspNetCore.SignalR.Client` 10.0.15 (este último só para provar o push do hub em teste).
+5. **Profile `llm` (Ollama) fora do compose até a etapa 2:** nenhum código usa LLM ainda (regra 4) e a GPU AMD em container precisa ser verificada.
+
+**Consequências:** o mundo tem um único escritor; leitores pegam um `WorldView` imutável; 98 testes incluindo restart do processo e push pelo hub. O compose tem um serviço e um volume.
+
+**Como explicar numa entrevista:** "Os endpoints não tocam no mundo: colocam um comando numa fila que só o laço da simulação consome. É um ator com uma caixa de entrada — sem locks, e um 'step' nunca se mistura com um tick em andamento. Leitores pegam a última view imutável. O estado vai para o browser por SignalR a cada tick."

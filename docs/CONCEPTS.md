@@ -308,3 +308,79 @@ RESOURCE_COLLAPSE      |  9/10 |       17 |           114 |        5
 **Limitações conhecidas:** limites são chutes iniciais; o detector usa o snapshot do fim do tick (aproximação para "estado no momento da morte"); a janela dos detectores fica em memória e se perde num restart (os agregados persistem); rodam dentro do tick e somam à sua duração; `RESOURCE_COLLAPSE` por Gini pode oscilar perto do limite e contar vários episódios.
 
 **Referências:** Charity Majors, Liz Fong-Jones, George Miranda, *Observability Engineering* (O'Reilly, 2022); Google SRE Book, cap. 6 *Monitoring Distributed Systems*; Prometheus docs, *Alerting rules* (`for:` e transições de estado).
+
+---
+
+## Dashboard e streaming de estado
+**Definição:** separação simulação/apresentação. A simulação roda num laço próprio no servidor e é a única que escreve no mundo; a apresentação recebe o estado empurrado (*push*) a cada tick, desenha, e envia comandos do modo deus por HTTP. A interface nunca altera o mundo.
+
+**Como funciona:**
+1. `SimulationHost : BackgroundService` é dono do mundo atual. Ao subir, retoma o último mundo do SQLite (`LatestWorldId` → `SimulationSession.Resume`) ou cria um com a config. Laço: tick (`TickRunner`) → publica view → espera `intervalo − duração` → repete. Se o tick estourou o intervalo, o próximo começa na hora (mitigação de `TICK_OVERRUN`).
+2. **Escritor único:** `POST /api/god/pause|resume|step|worlds` não tocam no mundo; colocam um `GodCommand` num `Channel` e aguardam o `TaskCompletionSource` do comando. Só o laço lê o canal e executa. Sem locks, sem corrida entre "step" e um tick em andamento.
+3. **Leitura sem trava:** ao fim de cada tick o laço publica um `WorldView` imutável (tick, pausado, lugares, arestas, agentes com lugar/viagem, mercado, dores ranqueadas) num campo `volatile`; `GET /api/world` e `/api/pains` só leem a referência. `GET /api/events?sinceTick=N&limit=500` lê do SQLite.
+4. **Push:** hub SignalR `/hubs/world`, mensagem `tick` = `{ world: WorldView, events: [...] }` (eventos no mesmo JSON do store, com `$type`). ~2 KB/tick com 5 agentes.
+5. **Dashboard** (`wwwroot`, HTML/JS/CSS puros, cliente SignalR 10.0.11 versionado em `lib/`, sem CDN): canvas com lugares nos `(x, y)` do grafo; pawn em trânsito em `lerp(origem, destino, progresso)`, com `progresso = (viagem − restantes) / viagem`; `requestAnimationFrame` interpola da posição anterior à atual ao longo de um intervalo de tick. Painéis: tick e hora simulada (dia = tick/24 + 1), pausar/retomar/avançar, novo mundo (seed + agentes), tabela de agentes, feed (esconde eventos ruidosos por padrão), dores. Texto vindo de agentes (`Talked`) entra por `textContent`, nunca `innerHTML` (com LLM, um agente poderia "falar" HTML).
+6. `/health` (health check do ASP.NET Core): `Healthy` depois que o laço publicou a primeira view.
+7. **Docker:** Dockerfile multi-stage (`sdk:10.0` restaura e publica; `aspnet:10.0` roda como usuário não-root `app`), restore em camada própria; `docker-compose.yml` com um serviço, porta 8080, volume `demiurge-data:/data`, `.env` opcional.
+
+Dados reais (container, `docker compose up -d --build`): `/health` → `200 Healthy`; tick 8 → 12 em 3 s; `pause` → `(24, True)`, `step` → `(25, True)`, `resume` → `(25, False)`; `docker compose restart` → mesmo `worldId`, tick continua; `worlds {seed 7, agentCount 3}` → `worldId 2`, tick 0, 3 agentes.
+
+**Onde está no projeto:** `src/Demiurge.Host/` (`Program.cs`, `DemiurgeOptions.cs`, `Simulation/SimulationHost.cs`, `Simulation/WorldView.cs`, `wwwroot/`), `Dockerfile`, `docker-compose.yml`, `.env.example`. Testes: `tests/Demiurge.Host.Tests/HostTests.cs` (`WebApplicationFactory`: health, gênese pausada, step + eventos, pause/resume, novo mundo, 400, 501, dores, restart do processo, dashboard servido, push do hub via cliente SignalR, i18n).
+
+**Por que usamos:** critério do dia 1 ("abrir o navegador e ver a simulação") e regra 5 (sobe com um comando). A separação permite trocar a apresentação (Blazor, Unity — etapa 9) sem tocar na simulação.
+
+**Alternativas e trade-offs:**
+- *Polling* de `/api/world` a cada segundo: mais latência e requisições; descartado.
+- *SSE (Server-Sent Events)*: mais simples, nativo do browser, só servidor→cliente — suficiente hoje. SignalR escolhido por estar na stack e permitir mensagens nos dois sentidos depois.
+- *`lock` em volta do mundo*: ficaria preso durante a espera de um LLM; o canal de escritor único é a semente do modelo de atores (etapa 7).
+- *Framework de front (React/Blazor)*: proibido até a dor (etapa 9).
+- *Ollama no compose agora*: adiado para a etapa 2 (sem código que use LLM; GPU AMD a verificar) — ADR-006.
+
+**Limitações conhecidas:** a view vai inteira a cada tick (não é delta) — bom para 5–25 agentes, não para milhares; o `/api/events` lê do banco a cada chamada; um mundo existente no banco tem prioridade sobre a seed da config (para trocar, botão "Novo mundo" ou `docker compose down -v`); os textos de amostra das dores vêm em inglês do harness; o visual do dashboard não tem teste automatizado (só a API, o hub e as chaves de i18n).
+
+**Referências:** Microsoft Learn — *Background tasks with hosted services*, *ASP.NET Core SignalR*, *System.Threading.Channels*; Docker docs — *Multi-stage builds*; MDN — `requestAnimationFrame`, *Server-sent events*.
+
+---
+
+## Internacionalização (i18n)
+**Definição:** separar todo texto visível da interface do código, em dicionários por idioma, e escolher o dicionário em tempo de execução. No DEMIURGE, a interface é bilíngue (pt-BR e en); dados, API, eventos e códigos continuam em inglês.
+
+**Como funciona:**
+1. `wwwroot/i18n/pt-BR.json` e `en.json`: mapa chave → texto. Famílias de chave: `ui.*`, `event.<Tipo>`, `pain.<CÓDIGO>`, `place.<id>`, `action.<Tipo>`, `reason.<Motivo>`, `cause.*`, `item.*`, `status.*`, `category.*`.
+2. Eventos usam modelos com marcadores: `"event.Worked": "{agentId} trabalhou e ganhou {earned} (total {money})"`. `describeEvent` traduz os campos antes (ids → "Agente 1", lugares → "Mercado", motivos → "dinheiro insuficiente") e preenche o modelo.
+3. Idioma inicial: escolha salva (`localStorage`) → idioma do navegador (`pt*` → pt-BR) → `en`. Troca pelo seletor, sem recarregar.
+4. Chave ausente cai para o identificador cru (`event.Foo` → `Foo`), nunca quebra a tela.
+5. Teste `Both_dictionaries_have_the_same_keys_and_cover_every_domain_identifier`: mesmas chaves nos dois arquivos e uma chave para cada tipo de evento, ação, motivo de rejeição, causa, item, status, categoria, código de dor e lugar — obtidos por reflexão. Um evento novo sem tradução quebra o build de testes.
+
+**Onde está no projeto:** `src/Demiurge.Host/wwwroot/i18n/`, `wwwroot/app.js` (`i18n`, `t`, `describeEvent`), `tests/Demiurge.Host.Tests/HostTests.cs`.
+
+**Por que usamos:** requisito do líder (dashboard pt-BR e en; código em inglês) e portfólio público.
+
+**Alternativas e trade-offs:** *i18next* ou similar — pluralização, formatação de datas, interpolação rica; dependência e CDN para ~30 linhas de necessidade. *Textos no HTML* — impossível alternar idioma sem duplicar a página. *Traduzir no servidor* (API devolve texto pronto) — acopla API a idioma e quebra a regra de API em inglês.
+
+**Limitações conhecidas:** sem pluralização ("1 episódio(s)"); números e horas não formatados por cultura; amostras das dores vêm do harness em inglês.
+
+**Referências:** W3C, *Internationalization techniques: Authoring HTML & CSS*; MDN, `Intl` e `navigator.language`.
+
+---
+
+## Pain-driven development
+**Definição:** método do projeto: nenhuma tecnologia, camada ou etapa entra por antecipação; entra quando uma dor **medida** a justifica. O harness sente (detectores), mitiga o que dá em runtime e expõe o resto; cada sessão de desenvolvimento ataca a dor de maior severidade × frequência.
+
+**Como funciona:**
+1. *Laço de runtime (segundos):* mitigações automáticas (falha de cérebro → agente parado no tick; tick atrasado → próximo começa na hora). Toda mitigação vira dor `Mitigated` — recorrência indica problema estrutural.
+2. *Laço de desenvolvimento (por sessão):* subir o sistema, ler `/api/pains` e `docs/PAINS.md`, escolher a dor, explicar, escrever teste que falha, corrigir a causa com a menor mudança, verificar que a dor some com a mesma seed, documentar (`docs/context/pain-system.md`).
+3. *Roadmap guiado por dor:* cada etapa tem uma dor que a libera; sem dor medida, cria-se pressão (mais agentes, escassez, evento do modo deus).
+4. *Evidência reproduzível:* toda dor citada tem um comando que a reproduz (`tools/Demiurge.Probe`).
+
+Exemplo real: o roadmap supunha que o cérebro de regras geraria `STARVATION_PARADOX` e `REPETITION_LOOP`. A medição deu zero nas duas e mostrou oscilação de objetivo, que nem tinha código. Resultado: ADR-005 — nova dor `GOAL_OSCILLATION` e gatilho da etapa 2 trocado pelas dores medidas. Exemplo de recusa por falta de dor: Ollama no compose adiado (ADR-006).
+
+**Onde está no projeto:** CLAUDE.md regra 4; `docs/context/pain-system.md`, `docs/context/roadmap.md`, `docs/PAINS.md`, `docs/DECISIONS.md`; `src/Demiurge.Harness/Pains/`; `tools/Demiurge.Probe/`.
+
+**Por que usamos:** projeto didático com tempo limitado (6–12 h/semana): cada peça precisa ter um motivo explicável numa entrevista. Evita arquitetura especulativa (Postgres, Orleans, Blazor antes da hora).
+
+**Alternativas e trade-offs:** *roadmap fixo por funcionalidade* — previsível, mas constrói o que talvez não seja necessário e não aprende com o sistema; *YAGNI sem medição* — mesmo espírito, mas sem critério objetivo de quando algo passa a ser necessário. Custo do método: às vezes adia algo que se sabe que virá (o líder antecipou Dapper por decisão própria — ADR-004 — e isso também fica registrado).
+
+**Limitações conhecidas:** só mede o que tem detector — uma falha sem detector é invisível; limites de detecção são arbitrários até calibrados; dores de conhecimento dependem da arguição.
+
+**Referências:** Kent Beck, *Extreme Programming Explained* (YAGNI); Google SRE Book, cap. 6 (*symptoms vs. causes*); Eric Ries, *The Lean Startup* (medir → aprender).

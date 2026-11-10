@@ -1,6 +1,6 @@
 # Dores
 
-Dores abertas e resolvidas. As de runtime (técnicas e comportamentais) vêm dos detectores (`/api/pains` quando o Host existir; hoje via `tools/Demiurge.Probe`). Dores `Knowledge` (do líder) são registradas só aqui.
+Dores abertas e resolvidas. As de runtime (técnicas e comportamentais) vêm dos detectores: `GET /api/pains` e painel do dashboard (mundo atual), ou `tools/Demiurge.Probe` (lote reproduzível). Dores `Knowledge` (do líder) são registradas só aqui.
 
 Formato: código · categoria · severidade · evidência (comando que reproduz) · status · próximo passo.
 
