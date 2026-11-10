@@ -5,6 +5,7 @@
     <Project Path="src/Demiurge.Harness/Demiurge.Harness.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Demiurge.Agents.Tests/Demiurge.Agents.Tests.csproj" />
     <Project Path="tests/Demiurge.Engine.Tests/Demiurge.Engine.Tests.csproj" />
     <Project Path="tests/Demiurge.Harness.Tests/Demiurge.Harness.Tests.csproj" />
   </Folder>

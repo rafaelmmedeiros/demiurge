@@ -204,3 +204,55 @@ Dado real (teste): com o cérebro do agent-2 lançando `InvalidOperationExceptio
 **Limitações conhecidas:** o prazo é tempo real, então numa execução ao vivo um cérebro lento muda quais decisões chegam ao engine — o resultado continua reproduzível pelos eventos gravados, mas não por "seed + cérebros". Um cérebro que ignora o token continua rodando em segundo plano depois do prazo (o tick só para de esperar). `BrainFailure` ainda não é persistido; vira dor (`TICK_EXCEPTION`, `TICK_OVERRUN`) com os detectores. Nenhuma mitigação ainda: o agente com falha simplesmente não age.
 
 **Referências:** Russell & Norvig, *Artificial Intelligence: A Modern Approach*, cap. 2 (Intelligent Agents); Microsoft Learn, *Task cancellation* e `Task.WaitAsync`.
+
+---
+
+## Agente baseado em regras e utility AI
+**Definição:** cérebros sem aprendizado, escritos à mão. *Lista de regras* (decision list): "se X então Y" em ordem fixa, a primeira que casa vence. *Utility AI*: toda opção recebe uma nota calculada da percepção e vence a maior. O `RuleBasedBrain` é utility AI.
+
+**Como funciona:**
+1. `RuleBasedBrain.Score(perception)` dá nota (inteiro 0–100) a cada objetivo disponível, sempre nesta ordem:
+
+| Objetivo | Disponível se | Nota |
+|---|---|---|
+| `Eat` | Food ≥ 1 | `Hunger` |
+| `GetFood` | Food = 0 e Money ≥ preço | `Hunger − 10` (custo de viagem) |
+| `Work` | Energy ≥ 8 | `70 − Money` (piso 0) |
+| `Rest` | sempre | `100 − Energy` |
+
+2. Vence a maior nota; empate fica com o primeiro da tabela (`MaxBy` mantém o primeiro) — determinístico.
+3. Objetivo → ação: `Eat` em qualquer lugar; os outros fazem a ação se o agente já está no lugar (`Buy` no mercado, `Work` no trabalho, `Rest` em casa), senão `MoveTo` até lá.
+4. Fraco de propósito: sem memória, ignora `LastRejection` e tempo de viagem, nunca conversa, nunca rouba.
+
+Exemplo (teste): no Trabalho, Hunger 72, Energy 40, Food 0, Money 12 → `GetFood 62`, `Work 58`, `Rest 60` → `MoveTo(market)`.
+
+**Medição real** (1000 ticks, seeds 1–10, 5 agentes):
+
+| Sinal | Resultado |
+|---|---|
+| Mortes | 2 a 5 por seed (41 de 50 agentes) |
+| Morte com dinheiro e comida disponível (`STARVATION_PARADOX`) | 0 — morrem sem dinheiro (0–3, preço 5) |
+| Ações rejeitadas (`ACTION_REJECTION_RATE`) | 0% — a utility só pontua objetivos disponíveis |
+| Mesma ação seguida (`REPETITION_LOOP`) | no máximo 3 ticks |
+| `Talk` (`NO_SOCIAL_CONTACT`) | 0 |
+| Troca de objetivo entre decisões consecutivas | **55%** |
+| `Work` por viagem iniciada | **0,13** (675 trabalhos, 5.090 viagens) |
+
+Sequência real do agent-1 (seed 1, ticks 100–113): `MoveTo Rest MoveTo Buy Eat MoveTo Rest MoveTo Work MoveTo MoveTo Buy Eat MoveTo`.
+
+O modo de falha é **oscilação de objetivo** (*dithering*): cada `Work` derruba a nota de trabalhar em 10 e sobe a de descansar em 10, então o agente troca de objetivo após 1–2 ações e passa o tempo viajando. Morre a caminho do trabalho, sem dinheiro. A causa é estrutural da utility AI sem compromisso: a decisão é refeita do zero a cada tick.
+
+**Onde está no projeto:** `src/Demiurge.Agents/RuleBasedBrain.cs` (`Decide`, `Score`, `Goal`, `GoalScore`); testes em `tests/Demiurge.Agents.Tests/RuleBasedBrainTests.cs`.
+
+**Por que usamos:** linha de base barata (microssegundos, sem custo de LLM) e explicável (as notas dizem por que cada decisão foi tomada). Gera as dores que justificam a etapa 2. Contraste medido com a lista de regras: a `ScriptedPolicy` de teste (lista de regras) ficava presa no mercado com `InsufficientMoney` repetido; a utility nunca propõe ação impossível.
+
+**Alternativas e trade-offs:**
+- *Lista de regras*: mais simples; prioridade fixa esconde necessidades (vimos agentes presos no mercado).
+- *FSM (máquina de estados)*: boa para estados visíveis; transições explodem com o número de necessidades.
+- *Behavior tree*: padrão em jogos, hierárquica; estrutura demais para 4 objetivos.
+- *GOAP* (planejamento A* sobre ações): resolveria a oscilação planejando a sequência, mas é planejamento — etapa 4, e entraria antes da dor.
+- *Histerese/compromisso* (bônus para manter o objetivo atual): conserto clássico da oscilação. Não aplicado: o cérebro é fraco de propósito, e a oscilação é a dor que queremos medir.
+
+**Limitações conhecidas:** curvas lineares e fixas; sem horizonte (não considera o custo da viagem nem o que vem depois); oscila sem histerese; mesmos pesos para todos (personalidades viriam de pesos por agente); conhece só 4 objetivos — nada social.
+
+**Referências:** Dave Mark, *Behavioral Mathematics for Game AI* (2009); Kevin Dill, "Introducing GAIA" / Infinite Axis Utility System (GDC 2010–2015); Jeff Orkin, *Three States and a Plan: The A.I. of F.E.A.R.* (GDC 2006) para GOAP; Damian Isla, *Handling Complexity in the Halo 2 AI* (GDC 2005) para behavior trees.

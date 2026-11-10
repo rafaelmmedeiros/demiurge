@@ -13,3 +13,4 @@
 
 **Concepts implemented** (see `docs/CONCEPTS.md`):
 - Agent and the perception → decision → action loop — `IAgentBrain`
+- Rule-based agent / utility AI (weak on purpose) — `RuleBasedBrain`

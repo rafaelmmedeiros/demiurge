@@ -116,3 +116,19 @@ Com uma barreira, não com cronômetro. Cada um dos 5 cérebros de teste increme
 
 **[Projeto] Os cérebros respondem em ordem aleatória. Isso não quebra o determinismo?**
 Não, porque a ordem de chegada é descartada: o engine ordena as decisões por `AgentId` e só depois embaralha com a seed. O que pode mudar o resultado é o prazo: numa execução ao vivo, um cérebro lento pode ficar de fora. Por isso a garantia é "mesma seed + mesmas decisões", e o mundo é reproduzível pelo log de eventos, que registra o que de fato aconteceu.
+
+---
+
+## Cérebro de regras
+
+**[Fundamentos] Qual a diferença entre um agente baseado em regras e utility AI?**
+Na lista de regras, as condições são testadas em ordem e a primeira que casa decide — a prioridade é fixa. Na utility AI, toda opção recebe uma nota calculada da percepção e vence a maior. No DEMIURGE vi a diferença na prática: uma lista de regras ("fome ≥ 60 → comprar" antes de "trabalhar") deixava agentes famintos e sem dinheiro presos no mercado, rejeitados tick após tick. O `RuleBasedBrain`, com utility, só pontua objetivos disponíveis: 0% de ações rejeitadas em 10 seeds.
+
+**[Projeto] Seu cérebro de regras é fraco de propósito. Como você sabe onde ele falha?**
+Medindo, não supondo. Rodei 1000 ticks em 10 seeds: 41 de 50 agentes morreram, mas nenhum com dinheiro no bolso — então não era o "paradoxo da fome" que o roadmap previa. O que apareceu foi oscilação: o objetivo muda em 55% das decisões e há 0,13 trabalho por viagem. Cada `Work` reduz a nota de trabalhar em 10 e aumenta a de descansar em 10, e o agente vive na estrada. Também zero conversas. São esses números que justificam o próximo cérebro.
+
+**[Profundidade] Como você corrigiria a oscilação sem LLM?**
+Três caminhos clássicos. Histerese: bônus de nota para o objetivo atual, então só troca se outro superar por uma margem. Compromisso: depois de escolher, mantém por N ticks ou até concluir. Planejamento (GOAP): busca a sequência de ações que satisfaz o objetivo, considerando o custo da viagem. Não apliquei nenhum de propósito: o cérebro de regras é a linha de base e a oscilação é a dor medida. A pergunta da etapa 2 é se um LLM, só com a mesma percepção, decide melhor — e a que custo.
+
+**[Projeto] Por que as notas são públicas (`Score`)?**
+Explicabilidade. Para qualquer decisão consigo mostrar "foi ao mercado porque GetFood = 62 superou Rest = 60 e Work = 58". Isso é a linha de base para observabilidade: quando o LLM entrar, vou querer a mesma pergunta respondida — por que ele decidiu isso? — e a comparação justa exige o mesmo nível de inspeção nos dois cérebros.

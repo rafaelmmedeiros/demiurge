@@ -37,6 +37,7 @@ Baseline and versions reviewed in `docs/DECISIONS.md` ADR-003.
 │   └── Demiurge.Host/          # ASP.NET Core: API, SignalR hub, wwwroot, DI composition
 └── tests/
     ├── Demiurge.Engine.Tests/
+    ├── Demiurge.Agents.Tests/
     └── Demiurge.Harness.Tests/
 ```
 
