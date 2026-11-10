@@ -21,6 +21,11 @@ Formato: o que foi feito · decisões · pendências.
 
 - Líder aprovou incluir na etapa 1: grafo de lugares (ADR-001) e botão "Novo mundo" (ADR-002). `world.md`, `stage-1.md`, `roadmap.md` atualizados; criados `DECISIONS.md` e `INTERVIEW.md`.
 
+- Conceitos 1 (simulação baseada em ticks) e 2 (determinismo e seed) explicados, aprovados, implementados e documentados (`CONCEPTS.md`, `INTERVIEW.md`).
+- Primeiro código: `Demiurge.slnx`, `src/Demiurge.Engine` (`World.Step`, necessidades, morte por fome, `IRandom`/`SplitMix64`), `tests/Demiurge.Engine.Tests` — 10 testes verdes (vetor de referência do PRNG, determinismo por SHA-256 de 500 ticks, regras de necessidade e fome).
+- Revisão da stack (ADR-003): .NET 10 LTS (11 saiu hoje, mesmo fim de suporte), `.slnx`, xUnit v3 4.0.3 em Microsoft Testing Platform v2, Central Package Management.
+
 **Pendências**
 - Líder revisar o rascunho do pitch (`VISION.md` §8).
-- Etapa 1: conceito 1 (simulação baseada em ticks) explicado e aprovado; conceito 2 (determinismo e seed) explicado, aguardando ok. Depois: implementar laço do tick + teste de determinismo e registrar ambos em `CONCEPTS.md`. Ordem dos conceitos em `docs/context/stage-1.md`.
+- Ainda não existe `docker-compose.yml`/Host: a regra 5 (sobe com um comando) passa a valer quando o Host entrar (conceito 9 / dashboard). Avaliar antecipar um Host mínimo com `/health`.
+- Próximo conceito: 3 — engine autoritativo (propor → validar → aplicar). Ordem em `docs/context/stage-1.md`.

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The engine has zero IO/LLM dependencies: no PackageReference here, by design. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Demiurge.Engine.Tests" />
+  </ItemGroup>
+</Project>

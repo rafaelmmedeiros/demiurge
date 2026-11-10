@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Demiurge.Engine/Demiurge.Engine.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Demiurge.Engine.Tests/Demiurge.Engine.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -3,13 +3,14 @@
 Minimal stack; it grows only by recorded pain (CLAUDE.md rule 4).
 
 ## Stack (Day 1)
-- .NET 10, C#, a single process.
+Baseline and versions reviewed in `docs/DECISIONS.md` ADR-003.
+- .NET 10 LTS, C#, a single process. SDK pinned in `global.json`; shared settings in `Directory.Build.props`; package versions only in `Directory.Packages.props` (Central Package Management).
 - ASP.NET Core: Minimal API + SignalR + static files.
 - Engine runs as a `BackgroundService` inside the same host.
 - Persistence: SQLite on a Docker volume (`/data/demiurge.db`); append-only events table + snapshot every N ticks.
 - Dashboard: plain HTML + JS in `wwwroot` with the SignalR JS client. No front-end framework on Day 1.
 - LLM access: `Microsoft.Extensions.AI` (`IChatClient`). Agent Framework only if a pain justifies it.
-- Tests: xUnit.
+- Tests: xUnit v3 (package line 4.x) on Microsoft Testing Platform v2 (`global.json` → `test.runner`). Test projects are `OutputType Exe`.
 
 ## Layout
 ```
@@ -18,7 +19,10 @@ Minimal stack; it grows only by recorded pain (CLAUDE.md rule 4).
 ├── docker-compose.yml
 ├── Dockerfile                  # multi-stage: sdk:10.0 -> aspnet:10.0, exposes 8080
 ├── .env.example
-├── Demiurge.sln
+├── Demiurge.slnx              # XML solution format (SDK 10 default)
+├── global.json                 # pinned SDK + test runner
+├── Directory.Build.props       # shared build settings
+├── Directory.Packages.props    # central package versions
 ├── docs/
 │   ├── context/                # Claude on-demand context (en)
 │   ├── CONCEPTS.md             # living glossary (pt-BR)

@@ -44,3 +44,38 @@ Toda decisão aqui gera ao menos uma pergunta em `docs/INTERVIEW.md`.
 - O banco cresce com cada mundo — monitorado pela dor `STORE_GROWTH`.
 
 **Como explicar numa entrevista:** "Como o engine é determinístico e todo estado vem de eventos, um mundo é só (seed, config, fluxo de eventos). Criar um mundo novo é gerar outro `WorldId`, e não apagar nada; isso me deu de graça a possibilidade de comparar duas rodadas com a mesma seed."
+
+---
+
+## ADR-003 — Revisão da stack (baseline de 2026-11-10)
+**Data:** 2026-11-10 · **Status:** aceita · **Pedido do líder:** "faça revisão das tecnologias que serão usadas".
+
+Versões conferidas no nuget.org / npm nesta data. Só entra no projeto o que a etapa atual usa; o resto fica anotado para quando a dor/etapa chegar.
+
+### Em uso agora
+| Tecnologia | Escolha | Motivo / alternativa descartada |
+|---|---|---|
+| Runtime | **.NET 10 LTS**, SDK 10.0.204 fixado em `global.json` (`rollForward: latestFeature`) | .NET 11 (STS) saiu hoje, 10/11/2026. Com STS de 2 anos, 10 e 11 têm fim de suporte em nov/2028: não há ganho de suporte. 10 está instalado e maduro; 11.0.0 é dia zero. Migrar = 2 linhas. Reavaliar se um recurso do C# 15 for necessário. |
+| Formato da solution | **`Demiurge.slnx`** (XML) | Padrão do SDK 10; substitui o `.sln`. Diff legível, sem GUIDs. |
+| Testes | **xUnit v3, pacote 4.0.3**, sobre **Microsoft Testing Platform v2** (`global.json` → `test.runner`) | O SDK 10 não aceita mais o modo VSTest com MTP (erro de build). Descartados `Microsoft.NET.Test.Sdk` e `xunit.runner.visualstudio` (pertencem ao VSTest). |
+| Versões de pacote | **Central Package Management** (`Directory.Packages.props`) | Uma versão por pacote na solution inteira. |
+| Configuração comum | `Directory.Build.props`: `net10.0`, `Nullable`, `TreatWarningsAsErrors`, `InvariantGlobalization` | `InvariantGlobalization` remove dependência de cultura/ICU: formatação de números igual em qualquer máquina e imagem Docker menor. |
+| PRNG | **SplitMix64 próprio** | `System.Random` sem garantia de algoritmo e sem estado exposto (ver CONCEPTS: Determinismo e seed). |
+
+### Próximas etapas (verificado, não instalado)
+| Tecnologia | Versão atual | Nota |
+|---|---|---|
+| ASP.NET Core (Minimal API, SignalR, static files) | parte do .NET 10 | Sem pacote extra. |
+| Cliente JS SignalR `@microsoft/signalr` | 11.0.0 | Servido localmente em `wwwroot` (sem CDN), para subir offline. Conferir compatibilidade com servidor 10 ao adicionar. |
+| `Microsoft.Data.Sqlite` | 11.0.0 | Conferir suporte a `net10.0` ao adicionar. Dapper (2.1.89) vs. ADO.NET puro: decidir na persistência. |
+| `Microsoft.Extensions.AI` | 10.11.0 | `IChatClient`. Etapa 2. |
+| Provider OpenAI-compatível `Microsoft.Extensions.AI.OpenAI` | 10.11.0 | O Ollama expõe endpoint compatível com OpenAI (`/v1`): um único provider pode cobrir Ollama e servidores compatíveis. Avaliar na etapa 2. |
+| `OllamaSharp` | 5.5.2 | Implementa `IChatClient`; o antigo `Microsoft.Extensions.AI.Ollama` aparece como descontinuado. Alternativa ao provider OpenAI-compatível. |
+| Provider Anthropic | — | Verificar SDK oficial e suporte a `IChatClient` na etapa 2. |
+| GPU AMD no Docker | — | Docker Desktop no Windows: GPU só NVIDIA (doc oficial). AMD exige ROCm no WSL2 com Docker Engine dentro do WSL (não o Desktop). Plano: Ollama nativo no Windows; testar AMD em container na etapa 2. |
+| `sqlite-vec` | — | Verificar maturidade na etapa 3. |
+| Postgres, Marten, Orleans, Blazor, Unity | — | Não revisados: proibidos até a dor (regra 4). |
+
+**Consequências:** `dotnet test` exige o `global.json` com `test.runner`; IDEs antigas sem suporte a MTP não descobrem os testes.
+
+**Como explicar numa entrevista:** "Fixei o SDK no `global.json` e todas as versões de pacote num arquivo central, para o build ser reproduzível como o mundo. Fiquei no .NET 10 LTS mesmo com o 11 saindo no dia, porque o fim de suporte era o mesmo e migrar custa duas linhas. E o engine não tem nenhum pacote: zero dependência de IO é uma propriedade verificável no `.csproj`."
