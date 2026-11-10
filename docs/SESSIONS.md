@@ -23,4 +23,4 @@ Formato: o que foi feito · decisões · pendências.
 
 **Pendências**
 - Líder revisar o rascunho do pitch (`VISION.md` §8).
-- Etapa 1: conceito 1 (simulação baseada em ticks) explicado, aguardando ok do líder. Ordem dos conceitos em `docs/context/stage-1.md`.
+- Etapa 1: conceito 1 (simulação baseada em ticks) explicado e aprovado; conceito 2 (determinismo e seed) explicado, aguardando ok. Depois: implementar laço do tick + teste de determinismo e registrar ambos em `CONCEPTS.md`. Ordem dos conceitos em `docs/context/stage-1.md`.
