@@ -226,7 +226,7 @@ Dado real (teste): com o cérebro do agent-2 lançando `InvalidOperationExceptio
 
 Exemplo (teste): no Trabalho, Hunger 72, Energy 40, Food 0, Money 12 → `GetFood 62`, `Work 58`, `Rest 60` → `MoveTo(market)`.
 
-**Medição real** (1000 ticks, seeds 1–10, 5 agentes):
+**Medição real — provisória** (1000 ticks, seeds 1–10, 5 agentes; feita com um script fora do repositório, será refeita pelos detectores do conceito 8 com comando reproduzível — ADR-005):
 
 | Sinal | Resultado |
 |---|---|

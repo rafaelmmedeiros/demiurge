@@ -100,3 +100,23 @@ Versões conferidas no nuget.org / npm nesta data. Só entra no projeto o que a 
 - Inserção em lote é uma execução por linha dentro de uma transação (~7 linhas/tick, 0,52 ms/tick medido).
 
 **Como explicar numa entrevista:** "O event store tem três tabelas e meia dúzia de queries, então EF Core seria excesso. Escolhi Dapper: escrevo o SQL — que num event store é simples e eu quero ver — e ele só cuida de parâmetros e mapeamento. A alternativa era ADO.NET puro; a diferença é pouco código, mas o Dapper deixa a classe do store com cara de SQL e nada mais."
+
+---
+
+## ADR-005 — Gatilho da etapa 2 pelo que foi medido; nova dor `GOAL_OSCILLATION`
+**Data:** 2026-11-10 · **Status:** aceita · **Aprovada pelo líder**
+
+**Motivo:** o roadmap previa que o cérebro de regras geraria `STARVATION_PARADOX` e `REPETITION_LOOP`, e que essas dores liberariam a etapa 2 (LLM). A medição do `RuleBasedBrain` (10 seeds × 1000 ticks) deu **0** nas duas. Apareceram: 41/50 mortes (`RESOURCE_COLLAPSE`), 0 conversas (`NO_SOCIAL_CONTACT`) e 55% de troca de objetivo entre decisões consecutivas, com 0,13 trabalho por viagem — sem código de dor que cubra.
+
+**Opções**
+1. Manter o roadmap e só registrar a divergência.
+2. Criar `GOAL_OSCILLATION` e trocar o gatilho da etapa 2 pelas dores comportamentais efetivamente medidas.
+
+**Decisão:** opção 2.
+- Nova dor `GOAL_OSCILLATION` (Behavior): agente que muda de rumo sem concluir o que foi fazer, acima de um limite numa janela de ticks (definição exata no conceito 8, observável pelos eventos, válida para qualquer cérebro).
+- Gatilho da etapa 2: dores comportamentais medidas com o `RuleBasedBrain` — `RESOURCE_COLLAPSE`, `GOAL_OSCILLATION`, `NO_SOCIAL_CONTACT`.
+- As medições do conceito 7 vieram de um script fora do repositório; são provisórias e serão refeitas pelos detectores do conceito 8, com um comando reproduzível.
+
+**Consequências:** o roadmap passa a ser corrigido por dado, não por suposição. A comparação da etapa 2 fica definida: o `LlmBrain`, com a mesma percepção, reduz mortalidade e oscilação e passa a conversar? A que custo?
+
+**Como explicar numa entrevista:** "Eu tinha suposto quais falhas o cérebro de regras teria. Medi e as duas que eu esperava deram zero; a falha real era oscilação de objetivo, que nem tinha nome no meu catálogo. Criei a dor, mudei o gatilho da etapa seguinte e marquei os números como provisórios até serem reproduzíveis por um comando. O roadmap obedece à medição."

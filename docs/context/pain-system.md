@@ -30,7 +30,7 @@ Detectors implement `IPainDetector` (see `world.md`), run at the end of every ti
 | `STORE_GROWTH` | DB size or query latency above limit | force snapshot and read compaction |
 
 ## Behavior pains (decision quality)
-They show where the brain is weak. On Day 1, with `RuleBasedBrain`, **they must appear** — that is what justifies the LLM, then memory, then planning.
+They show where the brain is weak. On Day 1, with `RuleBasedBrain`, **they must appear** — that is what justifies the LLM, then memory, then planning. Which ones appear is measured, not assumed (ADR-005).
 
 | Code | Signal | Indicates |
 |---|---|---|
@@ -39,6 +39,7 @@ They show where the brain is weak. On Day 1, with `RuleBasedBrain`, **they must 
 | `ACTION_REJECTION_RATE` | > 20% of an agent's actions rejected | incomplete perception or bad prompt |
 | `NO_SOCIAL_CONTACT` | no `Talk` for N ticks while other agents are alive | no social dimension |
 | `RESOURCE_COLLAPSE` | mortality or Gini above limit | unbalanced world dynamics |
+| `GOAL_OSCILLATION` | agent changes course without finishing what it went to do, above a threshold within a window (ADR-005) | no commitment / no planning |
 
 ## Knowledge pains (the lead)
 

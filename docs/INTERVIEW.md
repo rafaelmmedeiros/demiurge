@@ -132,3 +132,6 @@ Três caminhos clássicos. Histerese: bônus de nota para o objetivo atual, ent�
 
 **[Projeto] Por que as notas são públicas (`Score`)?**
 Explicabilidade. Para qualquer decisão consigo mostrar "foi ao mercado porque GetFood = 62 superou Rest = 60 e Work = 58". Isso é a linha de base para observabilidade: quando o LLM entrar, vou querer a mesma pergunta respondida — por que ele decidiu isso? — e a comparação justa exige o mesmo nível de inspeção nos dois cérebros.
+
+**[Projeto] Já aconteceu de a medição contradizer o seu plano?** (ADR-005)
+Sim. O roadmap dizia que o cérebro de regras geraria "paradoxo da fome" (morrer com dinheiro e comida disponível) e loops de repetição, e que isso justificaria o LLM. Em 10 seeds, as duas deram zero. A falha real foi oscilação: o objetivo mudava em 55% das decisões e o agente passava a vida viajando. Criei a dor `GOAL_OSCILLATION` e mudei o gatilho da etapa 2 para as dores efetivamente medidas. Também percebi que esses números vinham de um script fora do repo e os marquei como provisórios até os detectores os reproduzirem com um comando.
