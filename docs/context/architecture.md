@@ -7,7 +7,7 @@ Baseline and versions reviewed in `docs/DECISIONS.md` ADR-003.
 - .NET 10 LTS, C#, a single process. SDK pinned in `global.json`; shared settings in `Directory.Build.props`; package versions only in `Directory.Packages.props` (Central Package Management).
 - ASP.NET Core: Minimal API + SignalR + static files.
 - Engine runs as a `BackgroundService` inside the same host.
-- Persistence: SQLite on a Docker volume (`/data/demiurge.db`); append-only events table + snapshot every N ticks.
+- Persistence: SQLite on a Docker volume (`/data/demiurge.db`) via **Dapper** + `Microsoft.Data.Sqlite` 10.x (ADR-004). Tables `worlds`, `events` (append-only, JSON payload with `$type`), `snapshots` (every 100 ticks). JSON format lives in `Demiurge.Harness/Persistence/EventJson.cs`, never in the engine.
 - Dashboard: plain HTML + JS in `wwwroot` with the SignalR JS client. No front-end framework on Day 1.
 - LLM access: `Microsoft.Extensions.AI` (`IChatClient`). Agent Framework only if a pain justifies it.
 - Tests: xUnit v3 (package line 4.x) on Microsoft Testing Platform v2 (`global.json` → `test.runner`). Test projects are `OutputType Exe`.

@@ -26,10 +26,10 @@ public sealed record WorldConfig
     public ulong Seed { get; init; } = 42;
     public int AgentCount { get; init; } = 5;
 
-    public (int Min, int Max) InitialHunger { get; init; } = (0, 31);
-    public (int Min, int Max) InitialEnergy { get; init; } = (70, 101);
-    public (int Min, int Max) InitialFood { get; init; } = (0, 4);
-    public (int Min, int Max) InitialMoney { get; init; } = (20, 51);
+    public IntRange InitialHunger { get; init; } = (0, 31);
+    public IntRange InitialEnergy { get; init; } = (70, 101);
+    public IntRange InitialFood { get; init; } = (0, 4);
+    public IntRange InitialMoney { get; init; } = (20, 51);
 
     public int FoodPrice { get; init; } = 5;
     public int InitialMarketStock { get; init; } = 20;
@@ -41,4 +41,10 @@ public sealed record WorldConfig
 
     /// <summary>Chance, per agent present (victim included), of seeing a theft.</summary>
     public int TheftWitnessChancePercent { get; init; } = 50;
+}
+
+/// <summary>Integer range [Min, Max). Implicitly built from a tuple: <c>InitialFood = (0, 4)</c>.</summary>
+public readonly record struct IntRange(int Min, int Max)
+{
+    public static implicit operator IntRange((int Min, int Max) t) => new(t.Min, t.Max);
 }

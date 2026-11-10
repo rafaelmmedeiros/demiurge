@@ -53,6 +53,12 @@ The world is a graph of places, not a grid (see `docs/VISION.md` §4, `docs/DECI
 - Each world has a `WorldId`, a seed and a config (agent count, places graph). All events carry the `WorldId`.
 - Creating a new world stops the current one; old worlds stay in the database (replay, comparison).
 
+## Event sourcing rules
+- State changes only in `World.Apply(event)`; rules compute events and `Emit` applies + records them.
+- Events carry resulting values (assignment on apply, never a rule re-run).
+- Every tick ends with `TickEnded { RngState }`; genesis too. Snapshots include the RNG state.
+- Adding an event type: add it to `World.Apply`, make the test scenario produce it (`EventSourcingTests.Scenario_covers_every_event_type`), and keep its JSON round-trip green.
+
 ## Core contracts
 ```csharp
 public interface IAgentBrain

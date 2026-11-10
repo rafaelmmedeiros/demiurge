@@ -75,3 +75,25 @@ O engine sempre emite `Stole` — é o log de eventos, a visão de deus. Depois,
 
 **[Profundidade] Por que um grafo completo e não Dijkstra/A*?**
 Com 4 lugares, um grafo completo tem 6 arestas e responde "quanto custa ir de A a B" com uma consulta. Pathfinding só é necessário quando há rotas que passam por lugares intermediários. O construtor do `PlacesGraph` rejeita grafo incompleto, então a hipótese está garantida em código. O limite é o crescimento n(n−1)/2: com 20 lugares seriam 190 arestas a configurar — aí entra Dijkstra e o grafo deixa de precisar ser completo.
+
+---
+
+## Event sourcing e persistência
+
+**[Fundamentos] O que é event sourcing?**
+É guardar como fonte da verdade a sequência de fatos que aconteceram, só com inserções, e derivar o estado aplicando esses fatos em ordem: estado(t) = fold(Apply, vazio, eventos até t). No DEMIURGE, toda mudança passa por `World.Emit(e)`, que aplica e registra o evento; o SQLite guarda a tabela `events` append-only. O estado atual nunca é a verdade — é um cálculo, e snapshots a cada 100 ticks são só cache para não reaplicar do gênesis.
+
+**[Projeto] Como você garante que nenhum estado muda sem gerar evento?**
+Por construção e por teste. Por construção: `Apply(evento)` é o único método com atribuições de estado no `World`; as regras só calculam eventos, e `Emit` aplica e registra. O caminho ao vivo e a reconstrução usam o mesmo `Apply`. Por teste: rodo 500 ticks, reconstruo um mundo só com os eventos e comparo os snapshots com `Assert.Equivalent` estrito; outro teste garante que o cenário produz todos os tipos de evento, para que nenhum fique sem cobertura.
+
+**[Projeto] Por que os eventos carregam o valor final (`Money = 48`) e não a variação (`+10`)?**
+Para que aplicar um evento seja atribuição, não regra. Se o evento fosse "trabalhou", a reconstrução precisaria reexecutar a regra do salário — e, se o salário mudar no código, o passado mudaria junto. Com o valor final, o passado fica fixo. É também a diferença entre event sourcing e command sourcing: gravar só as decisões é mais compacto, mas o resultado depende da versão do código.
+
+**[Profundidade] Seu mundo usa números aleatórios. Como a reconstrução continua a mesma sequência?**
+O estado do RNG é estado do mundo, então vira evento: cada tick termina com `TickEnded { Tick, RngState }`, e o snapshot também guarda o `RngState`. Ao aplicar `TickEnded`, o mundo recria o SplitMix64 naquele estado. Um teste para a simulação no tick 250, retoma do SQLite, roda mais 250 ticks e exige que o log seja idêntico ao de 500 ticks ininterruptos.
+
+**[Profundidade] Quais os custos de event sourcing no seu projeto?**
+Três. Crescimento: 7,3 eventos por tick, ~1 MB por 1000 ticks com 5 agentes, ~3,4 MB por hora a 1 tick/s — vigiado pela dor `STORE_GROWTH`. Evolução de schema: renomear um evento quebra a leitura do histórico; precisarei de *upcasting* ou versão no discriminador. Concorrência: o `Append` lê `MAX(seq)`, o que só é correto com um escritor — suficiente hoje, errado com vários processos.
+
+**[Projeto] Por que Dapper e não EF Core?** (ADR-004)
+O event store tem três tabelas append-only e meia dúzia de queries. EF Core traria change tracking e migrations, pensados para entidades mutáveis — o oposto de eventos imutáveis. Dapper me deixa escrever o SQL, que num event store é simples e eu quero controlar, e só cuida de parâmetros e mapeamento. A alternativa considerada foi ADO.NET puro; o Dapper venceu por deixar o código do store só com SQL.

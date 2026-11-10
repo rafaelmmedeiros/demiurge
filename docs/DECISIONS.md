@@ -79,3 +79,24 @@ Versões conferidas no nuget.org / npm nesta data. Só entra no projeto o que a 
 **Consequências:** `dotnet test` exige o `global.json` com `test.runner`; IDEs antigas sem suporte a MTP não descobrem os testes.
 
 **Como explicar numa entrevista:** "Fixei o SDK no `global.json` e todas as versões de pacote num arquivo central, para o build ser reproduzível como o mundo. Fiquei no .NET 10 LTS mesmo com o 11 saindo no dia, porque o fim de suporte era o mesmo e migrar custa duas linhas. E o engine não tem nenhum pacote: zero dependência de IO é uma propriedade verificável no `.csproj`."
+
+---
+
+## ADR-004 — Persistência: SQLite + Dapper desde o início
+**Data:** 2026-11-10 · **Status:** aceita · **Decisão do líder**
+
+**Motivo:** event sourcing precisa de um event store (conceito 5). SQLite já estava na stack do dia 1 (arquivo em volume Docker, sem servidor).
+
+**Opções de acesso a dados**
+1. **ADO.NET puro** (`SqliteCommand`, `DataReader`): zero dependência extra; mais código repetitivo para parâmetros e leitura.
+2. **Dapper**: micro-ORM; mapeia parâmetros de objetos anônimos e resultados para tipos; SQL continua escrito à mão.
+3. **EF Core**: ORM completo com migrations e change tracking; pesado para 3 tabelas append-only e incompatível em espírito com "eventos imutáveis".
+
+**Decisão:** opção 2. O Claude propôs ADO.NET puro até o SQL manual doer (regra 4); o líder decidiu usar Dapper de primeira. Versões: `Dapper` 2.1.89, `Microsoft.Data.Sqlite` 10.0.15 (linha 10.x, alinhada ao .NET 10 LTS do ADR-003; a 11.0.0 também suporta `net10.0`, mas é de dia zero).
+
+**Consequências**
+- SQL explícito e legível (`SqliteEventStore`), sem mapeamento mágico; Dapper só faz parâmetros e leitura.
+- `seed` gravado como TEXT: `ulong` não cabe no INTEGER de 64 bits com sinal do SQLite.
+- Inserção em lote é uma execução por linha dentro de uma transação (~7 linhas/tick, 0,52 ms/tick medido).
+
+**Como explicar numa entrevista:** "O event store tem três tabelas e meia dúzia de queries, então EF Core seria excesso. Escolhi Dapper: escrevo o SQL — que num event store é simples e eu quero ver — e ele só cuida de parâmetros e mapeamento. A alternativa era ADO.NET puro; a diferença é pouco código, mas o Dapper deixa a classe do store com cara de SQL e nada mais."

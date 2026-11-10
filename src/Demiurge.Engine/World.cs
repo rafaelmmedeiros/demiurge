@@ -8,22 +8,24 @@ namespace Demiurge.Engine;
 /// <summary>
 /// The simulated world and the only authority over its state. Time advances only through
 /// <see cref="Step"/>: one call = one tick = one simulated hour. Nothing changes between ticks.
+/// State changes ONLY in <see cref="Apply"/>: every rule computes events, and <see cref="Emit"/>
+/// applies and records them. The live path and the rebuild path run the exact same code.
 /// Concepts: Tick-based simulation — docs/CONCEPTS.md#simulação-baseada-em-ticks ;
 ///           Determinism and seed — docs/CONCEPTS.md#determinismo-e-seed ;
 ///           Authoritative engine — docs/CONCEPTS.md#engine-autoritativo ;
-///           Places graph — docs/CONCEPTS.md#grafo-de-lugares
+///           Places graph — docs/CONCEPTS.md#grafo-de-lugares ;
+///           Event sourcing — docs/CONCEPTS.md#event-sourcing
 /// </summary>
 public sealed class World
 {
-    private readonly List<Agent> _agents;  // always ordered by AgentId: iteration order is part of determinism
-    private readonly IRandom _rng;
+    private readonly List<Agent> _agents = [];  // always ordered by AgentId: iteration order is part of determinism
+    private IRandom _rng;
 
-    private World(WorldConfig config, IRandom rng, List<Agent> agents, Market market)
+    private World(WorldConfig config)
     {
         Config = config;
-        _rng = rng;
-        _agents = agents;
-        Market = market;
+        _rng = new SplitMix64(config.Seed);
+        Market = new Market(0, config.FoodPrice);
     }
 
     public WorldConfig Config { get; }
@@ -35,10 +37,12 @@ public sealed class World
 
     public Market Market { get; }
 
-    /// <summary>RNG state; goes into snapshots so a restored world continues the same random sequence.</summary>
+    /// <summary>RNG state; recorded in every TickEnded event and in snapshots.</summary>
     public ulong RngState => _rng.State;
 
     internal IRandom Rng => _rng;
+
+    // ------------------------------------------------------------------ creation and rebuild
 
     /// <summary>Creates a world from its config. Returns the genesis report (tick 0).</summary>
     public static (World World, TickReport Genesis) Create(WorldConfig config)
@@ -47,28 +51,76 @@ public sealed class World
         if (config.Graph.Find(config.StartPlace) is null)
             throw new ArgumentException($"Start place {config.StartPlace} is not in the graph.", nameof(config));
 
-        var rng = new SplitMix64(config.Seed);
-        var agents = new List<Agent>(config.AgentCount);
-        var events = new List<WorldEvent>(config.AgentCount + 1);
+        var world = new World(config);
+        var events = new List<WorldEvent>(config.AgentCount + 2);
 
         for (int i = 1; i <= config.AgentCount; i++)
         {
-            var agent = new Agent(
+            world.Emit(new AgentSpawned(
+                0,
                 new AgentId(i),
-                hunger: rng.NextInt(config.InitialHunger.Min, config.InitialHunger.Max),
-                energy: rng.NextInt(config.InitialEnergy.Min, config.InitialEnergy.Max),
-                food: rng.NextInt(config.InitialFood.Min, config.InitialFood.Max),
-                money: rng.NextInt(config.InitialMoney.Min, config.InitialMoney.Max),
-                location: new AtPlace(config.StartPlace));
-            agents.Add(agent);
-            events.Add(new AgentSpawned(0, agent.Id, agent.Hunger, agent.Energy, agent.Food, agent.Money, config.StartPlace));
+                Hunger: world._rng.NextInt(config.InitialHunger.Min, config.InitialHunger.Max),
+                Energy: world._rng.NextInt(config.InitialEnergy.Min, config.InitialEnergy.Max),
+                Food: world._rng.NextInt(config.InitialFood.Min, config.InitialFood.Max),
+                Money: world._rng.NextInt(config.InitialMoney.Min, config.InitialMoney.Max),
+                Place: config.StartPlace), events);
         }
 
-        var market = new Market(config.InitialMarketStock, config.FoodPrice);
-        events.Add(new MarketOpened(0, market.FoodStock, market.FoodPrice));
+        world.Emit(new MarketOpened(0, config.InitialMarketStock, config.FoodPrice), events);
+        world.Emit(new TickEnded(0, world._rng.State), events);
 
-        return (new World(config, rng, agents, market), new TickReport(0, events));
+        return (world, new TickReport(0, events));
     }
+
+    /// <summary>Rebuilds a world by applying its full event stream from genesis.</summary>
+    public static World FromEvents(WorldConfig config, IEnumerable<WorldEvent> events)
+    {
+        var world = new World(config);
+        foreach (var e in events)
+            world.Apply(e);
+        return world;
+    }
+
+    /// <summary>Rebuilds a world from a snapshot plus the events recorded after it.</summary>
+    public static World FromSnapshot(WorldConfig config, WorldSnapshot snapshot, IEnumerable<WorldEvent> eventsAfter)
+    {
+        var world = new World(config)
+        {
+            Tick = snapshot.Tick,
+            _rng = new SplitMix64(snapshot.RngState),
+        };
+
+        foreach (var s in snapshot.Agents.OrderBy(a => a.Id))
+        {
+            var agent = new Agent(s.Id, s.Hunger, s.Energy, s.Food, s.Money, s.Location)
+            {
+                IsAlive = s.IsAlive,
+                TicksStarving = s.TicksStarving,
+                LastRejection = s.LastRejection,
+            };
+            agent.MessagesHeard.AddRange(s.MessagesHeard);
+            agent.TheftsWitnessed.AddRange(s.TheftsWitnessed);
+            world._agents.Add(agent);
+        }
+
+        world.Market.FoodStock = snapshot.Market.FoodStock;
+        world.Market.FoodPrice = snapshot.Market.FoodPrice;
+        world.Market.Money = snapshot.Market.Money;
+
+        foreach (var e in eventsAfter)
+            world.Apply(e);
+        return world;
+    }
+
+    public WorldSnapshot ToSnapshot() => new(
+        Tick,
+        _rng.State,
+        _agents.Select(a => new AgentSnapshot(
+            a.Id, a.Hunger, a.Energy, a.Food, a.Money, a.IsAlive, a.TicksStarving, a.Location,
+            a.LastRejection, a.MessagesHeard.ToList(), a.TheftsWitnessed.ToList())).ToList(),
+        new MarketSnapshot(Market.FoodStock, Market.FoodPrice, Market.Money));
+
+    // ------------------------------------------------------------------ perception
 
     /// <summary>
     /// What one agent can see now (end of the last tick). An immutable copy: the brain gets no
@@ -87,6 +139,8 @@ public sealed class World
             Market.FoodStock, Market.FoodPrice, Config.Graph, agent.LastRejection);
     }
 
+    // ------------------------------------------------------------------ tick
+
     /// <summary>Advances one tick with no decisions (every agent idles).</summary>
     public TickReport Step() => Step([]);
 
@@ -99,20 +153,14 @@ public sealed class World
     /// </summary>
     public TickReport Step(IReadOnlyList<AgentDecision> decisions)
     {
-        Tick++;
-        var events = new List<WorldEvent> { new TickStarted(Tick) };
+        var events = new List<WorldEvent>();
 
-        foreach (var agent in _agents)
-        {
-            agent.LastRejection = null;
-            agent.MessagesHeard.Clear();
-            agent.TheftsWitnessed.Clear();
-        }
-
+        Emit(new TickStarted(Tick + 1), events);
         ResolveDecisions(decisions, events);
         ApplyNeeds(events);
         AdvanceTravel(events);
         RestockMarket(events);
+        Emit(new TickEnded(Tick, _rng.State), events);
 
         return new TickReport(Tick, events);
     }
@@ -130,104 +178,169 @@ public sealed class World
         foreach (var decision in ordered)
         {
             var agent = FindAgent(decision.AgentId);
-            if (agent is null)
-            {
-                events.Add(new ActionRejected(Tick, decision.AgentId, decision.Action, RejectionReason.UnknownAgent));
-                continue;
-            }
-
-            if (!agent.IsAlive)
-            {
-                Reject(agent, decision.Action, RejectionReason.AgentNotAlive, events);
-                continue;
-            }
-
-            if (duplicated.Contains(agent.Id))
-            {
-                Reject(agent, decision.Action, RejectionReason.DuplicateDecision, events);
-                continue;
-            }
-
-            if (agent.Location is InTransit)
-            {
-                Reject(agent, decision.Action, RejectionReason.InTransit, events);
-                continue;
-            }
-
             var action = decision.Action;
-            if (agent.Energy == 0 && action is not Rest)
+
+            RejectionReason? reason =
+                agent is null ? RejectionReason.UnknownAgent
+                : !agent.IsAlive ? RejectionReason.AgentNotAlive
+                : duplicated.Contains(agent.Id) ? RejectionReason.DuplicateDecision
+                : agent.Location is InTransit ? RejectionReason.InTransit
+                : null;
+
+            if (reason is null && agent!.Energy == 0 && action is not Rest)
             {
                 // World rule: an exhausted agent can only rest. The proposal is refused and Rest is applied.
-                Reject(agent, action, RejectionReason.Exhausted, events);
+                Emit(new ActionRejected(Tick, agent.Id, action, RejectionReason.Exhausted), events);
                 action = new Rest();
             }
 
-            var reason = ActionRules.Validate(agent, action, this);
-            if (reason is { } r)
-                Reject(agent, action, r, events);
-            else
-                events.AddRange(ActionRules.Apply(Tick, agent, action, this));
-        }
-    }
+            reason ??= ActionRules.Validate(agent!, action, this);
 
-    private void Reject(Agent agent, AgentAction action, RejectionReason reason, List<WorldEvent> events)
-    {
-        agent.LastRejection = reason;
-        events.Add(new ActionRejected(Tick, agent.Id, action, reason));
+            if (reason is { } r)
+                Emit(new ActionRejected(Tick, decision.AgentId, action, r), events);
+            else
+                foreach (var e in ActionRules.Resolve(Tick, agent!, action, this))
+                    Emit(e, events);
+        }
     }
 
     private void ApplyNeeds(List<WorldEvent> events)
     {
-        foreach (var agent in _agents)
+        foreach (var agent in _agents.Where(a => a.IsAlive).ToList())
         {
-            if (!agent.IsAlive)
-                continue;
+            int hunger = Math.Min(WorldRules.MaxNeed, agent.Hunger + WorldRules.HungerPerTick);
+            int energy = Math.Max(0, agent.Energy - WorldRules.EnergyPerTick);
+            int starving = hunger >= WorldRules.MaxNeed ? agent.TicksStarving + 1 : 0;
 
-            agent.Hunger = Math.Min(WorldRules.MaxNeed, agent.Hunger + WorldRules.HungerPerTick);
-            agent.Energy = Math.Max(0, agent.Energy - WorldRules.EnergyPerTick);
-            events.Add(new NeedsUpdated(Tick, agent.Id, agent.Hunger, agent.Energy));
-
-            agent.TicksStarving = agent.Hunger >= WorldRules.MaxNeed ? agent.TicksStarving + 1 : 0;
-            if (agent.TicksStarving >= WorldRules.StarvationTicks)
-            {
-                agent.IsAlive = false;
-                events.Add(new AgentDied(Tick, agent.Id, DeathCause.Starvation));
-            }
+            Emit(new NeedsUpdated(Tick, agent.Id, hunger, energy, starving), events);
+            if (starving >= WorldRules.StarvationTicks)
+                Emit(new AgentDied(Tick, agent.Id, DeathCause.Starvation), events);
         }
     }
 
     private void AdvanceTravel(List<WorldEvent> events)
     {
-        foreach (var agent in _agents)
+        foreach (var agent in _agents.Where(a => a.IsAlive).ToList())
         {
-            if (!agent.IsAlive || agent.Location is not InTransit trip)
+            if (agent.Location is not InTransit trip)
                 continue;
 
             int remaining = trip.TicksRemaining - 1;
-            if (remaining == 0)
-            {
-                agent.Location = new AtPlace(trip.To);
-                events.Add(new Arrived(Tick, agent.Id, trip.To));
-            }
-            else
-            {
-                agent.Location = trip with { TicksRemaining = remaining };
-                events.Add(new TravelProgressed(Tick, agent.Id, trip.From, trip.To, remaining));
-            }
+            Emit(remaining == 0
+                ? new Arrived(Tick, agent.Id, trip.To)
+                : new TravelProgressed(Tick, agent.Id, trip.From, trip.To, remaining), events);
         }
     }
 
     private void RestockMarket(List<WorldEvent> events)
     {
         int restocked = Math.Min(Config.MarketCapacity, Market.FoodStock + Config.MarketRestockPerTick);
-        if (restocked == Market.FoodStock)
-            return;
-
-        Market.FoodStock = restocked;
-        events.Add(new MarketRestocked(Tick, Market.FoodStock));
+        if (restocked != Market.FoodStock)
+            Emit(new MarketRestocked(Tick, restocked), events);
     }
 
+    // ------------------------------------------------------------------ event sourcing core
+
+    /// <summary>Applies an event to the state and records it. The only way the live world changes.</summary>
+    private void Emit(WorldEvent e, List<WorldEvent> sink)
+    {
+        Apply(e);
+        sink.Add(e);
+    }
+
+    /// <summary>
+    /// Applies one event to the state. Pure assignment from the event's values: no rule runs here,
+    /// so replaying old events gives the old world even if the rules change later.
+    /// </summary>
+    private void Apply(WorldEvent e)
+    {
+        switch (e)
+        {
+            case AgentSpawned s:
+                _agents.Add(new Agent(s.AgentId, s.Hunger, s.Energy, s.Food, s.Money, new AtPlace(s.Place)));
+                break;
+            case MarketOpened m:
+                Market.FoodStock = m.FoodStock;
+                Market.FoodPrice = m.FoodPrice;
+                break;
+            case TickStarted t:
+                Tick = t.Tick;
+                foreach (var a in _agents)
+                {
+                    a.LastRejection = null;
+                    a.MessagesHeard.Clear();
+                    a.TheftsWitnessed.Clear();
+                }
+                break;
+            case TickEnded t:
+                _rng = new SplitMix64(t.RngState);
+                break;
+            case NeedsUpdated n:
+                var needy = Get(n.AgentId);
+                needy.Hunger = n.Hunger;
+                needy.Energy = n.Energy;
+                needy.TicksStarving = n.TicksStarving;
+                break;
+            case AgentDied d:
+                Get(d.AgentId).IsAlive = false;
+                break;
+            case MarketRestocked r:
+                Market.FoodStock = r.FoodStock;
+                break;
+            case TravelStarted ts:
+                Get(ts.AgentId).Location = new InTransit(ts.From, ts.To, ts.Ticks);
+                break;
+            case TravelProgressed tp:
+                Get(tp.AgentId).Location = new InTransit(tp.From, tp.To, tp.TicksRemaining);
+                break;
+            case Arrived ar:
+                Get(ar.AgentId).Location = new AtPlace(ar.Place);
+                break;
+            case Rested r:
+                Get(r.AgentId).Energy = r.Energy;
+                break;
+            case Ate a:
+                var eater = Get(a.AgentId);
+                eater.Hunger = a.Hunger;
+                eater.Food = a.FoodLeft;
+                break;
+            case Worked w:
+                var worker = Get(w.AgentId);
+                worker.Money = w.Money;
+                worker.Energy = w.Energy;
+                break;
+            case FoodBought f:
+                var buyer = Get(f.AgentId);
+                buyer.Money = f.Money;
+                buyer.Food = f.Food;
+                Market.FoodStock = f.MarketFoodStock;
+                Market.Money = f.MarketMoney;
+                break;
+            case Talked t:
+                Get(t.Listener).MessagesHeard.Add(new HeardMessage(t.Speaker, t.Text));
+                break;
+            case Stole s:
+                Get(s.Thief).Food = s.ThiefFood;
+                Get(s.Victim).Food = s.VictimFood;
+                break;
+            case TheftWitnessed w:
+                Get(w.Witness).TheftsWitnessed.Add(new WitnessedTheft(w.Thief, w.Victim));
+                break;
+            case ActionRejected r:
+                if (FindAgent(r.AgentId) is { } rejected)
+                    rejected.LastRejection = r.Reason;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(e), e, "Unknown event type.");
+        }
+    }
+
+    // ------------------------------------------------------------------ queries
+
     internal Agent? FindAgent(AgentId id) => _agents.Find(a => a.Id == id);
+
+    private Agent Get(AgentId id) =>
+        FindAgent(id) ?? throw new InvalidOperationException($"Event references unknown agent {id}.");
 
     /// <summary>Living agents standing at a place (not in transit), in id order.</summary>
     internal IEnumerable<Agent> PresentAt(PlaceId place) =>

@@ -5,13 +5,15 @@ using Demiurge.Engine.Randomness;
 namespace Demiurge.Engine.Actions;
 
 /// <summary>
-/// Validation and application of proposed actions. Validate is a pure check (no mutation);
-/// Apply runs only after Validate returned null, so every invariant lives in this file:
-/// money never goes negative, food is never created from nothing, needs stay in 0–100,
-/// actions happen only where they are allowed.
+/// Validation and resolution of proposed actions. Both are pure with respect to world state:
+/// Validate checks the rules; Resolve computes the events the action produces (with resulting
+/// values). The world changes only when World applies those events.
+/// Every invariant lives in this file: money never goes negative, food is never created from
+/// nothing, needs stay in 0–100, actions happen only where they are allowed.
 /// Callers guarantee the agent is alive and at a place (not in transit).
 /// Concepts: Authoritative engine — docs/CONCEPTS.md#engine-autoritativo ;
-///           Places graph — docs/CONCEPTS.md#grafo-de-lugares
+///           Places graph — docs/CONCEPTS.md#grafo-de-lugares ;
+///           Event sourcing — docs/CONCEPTS.md#event-sourcing
 /// </summary>
 internal static class ActionRules
 {
@@ -56,7 +58,8 @@ internal static class ActionRules
         };
     }
 
-    public static IEnumerable<WorldEvent> Apply(long tick, Agent agent, AgentAction action, World world)
+    /// <summary>Events produced by a valid action. Does not mutate state (only the seeded RNG advances).</summary>
+    public static IReadOnlyList<WorldEvent> Resolve(long tick, Agent agent, AgentAction action, World world)
     {
         var here = ((AtPlace)agent.Location).Place;
         var market = world.Market;
@@ -67,48 +70,39 @@ internal static class ActionRules
                 int gain = world.Config.Graph.Find(here)!.Kind == PlaceKind.Home
                     ? WorldRules.RestEnergyGainAtHome
                     : WorldRules.RestEnergyGainElsewhere;
-                agent.Energy = Math.Min(WorldRules.MaxNeed, agent.Energy + gain);
-                return [new Rested(tick, agent.Id, agent.Energy)];
+                return [new Rested(tick, agent.Id, Math.Min(WorldRules.MaxNeed, agent.Energy + gain))];
 
             case Eat:
-                agent.Food -= 1;
-                agent.Hunger = Math.Max(0, agent.Hunger - WorldRules.MealHungerRelief);
-                return [new Ate(tick, agent.Id, agent.Hunger, agent.Food)];
+                return [new Ate(tick, agent.Id, Math.Max(0, agent.Hunger - WorldRules.MealHungerRelief), agent.Food - 1)];
 
             case Work:
-                agent.Energy -= WorldRules.WorkEnergyCost;
-                agent.Money += WorldRules.WagePerWork;
-                return [new Worked(tick, agent.Id, WorldRules.WagePerWork, agent.Money, agent.Energy)];
+                return [new Worked(tick, agent.Id, WorldRules.WagePerWork,
+                    agent.Money + WorldRules.WagePerWork, agent.Energy - WorldRules.WorkEnergyCost)];
 
             case Buy:
-                agent.Money -= market.FoodPrice;
-                agent.Food += 1;
-                market.FoodStock -= 1;
-                market.Money += market.FoodPrice;
-                return [new FoodBought(tick, agent.Id, market.FoodPrice, agent.Money, agent.Food, market.FoodStock)];
+                return [new FoodBought(tick, agent.Id, market.FoodPrice,
+                    agent.Money - market.FoodPrice, agent.Food + 1, market.FoodStock - 1, market.Money + market.FoodPrice)];
 
             case MoveTo m:
-                int ticks = world.Config.Graph.TravelTicks(here, m.Destination);
-                agent.Location = new InTransit(here, m.Destination, ticks);
-                return [new TravelStarted(tick, agent.Id, here, m.Destination, ticks)];
+                return [new TravelStarted(tick, agent.Id, here, m.Destination, world.Config.Graph.TravelTicks(here, m.Destination))];
 
             case Talk t:
-                world.FindAgent(t.Target)!.MessagesHeard.Add(new HeardMessage(agent.Id, t.Text));
                 return [new Talked(tick, agent.Id, t.Target, t.Text)];
 
             case Steal s:
-                return ApplySteal(tick, agent, world.FindAgent(s.Target)!, here, world);
+                return ResolveSteal(tick, agent, world.FindAgent(s.Target)!, here, world);
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), action, "Unknown action type.");
         }
     }
 
-    private static List<WorldEvent> ApplySteal(long tick, Agent thief, Agent victim, PlaceId here, World world)
+    private static List<WorldEvent> ResolveSteal(long tick, Agent thief, Agent victim, PlaceId here, World world)
     {
-        victim.Food -= 1;
-        thief.Food += 1;
-        var events = new List<WorldEvent> { new Stole(tick, thief.Id, victim.Id, StolenItem.Food) };
+        var events = new List<WorldEvent>
+        {
+            new Stole(tick, thief.Id, victim.Id, StolenItem.Food, thief.Food + 1, victim.Food - 1),
+        };
 
         // Each agent present (victim included) rolls independently, in id order so the RNG
         // sequence is deterministic. The world records the theft either way; only witnesses learn who did it.
@@ -116,11 +110,8 @@ internal static class ActionRules
         {
             if (witness.Id == thief.Id)
                 continue;
-            if (!world.Rng.Chance(world.Config.TheftWitnessChancePercent))
-                continue;
-
-            witness.TheftsWitnessed.Add(new WitnessedTheft(thief.Id, victim.Id));
-            events.Add(new TheftWitnessed(tick, witness.Id, thief.Id, victim.Id));
+            if (world.Rng.Chance(world.Config.TheftWitnessChancePercent))
+                events.Add(new TheftWitnessed(tick, witness.Id, thief.Id, victim.Id));
         }
 
         return events;

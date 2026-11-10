@@ -134,3 +134,31 @@ Stole { Tick = 40, Thief = agent-3, Victim = agent-4, Item = Food }      ← nin
 **Limitações conhecidas:** agentes na mesma estrada não se encontram; tempo de viagem igual para todos; grafo completo cresce em n(n−1)/2 arestas (4 lugares = 6; 20 = 190); resolução sequencial dentro do tick faz o resultado depender da ordem sorteada (se o alvo sai antes do ladrão agir, `TargetNotPresent`).
 
 **Referências:** Park et al., *Generative Agents* (2023) — mundo Smallville como árvore de áreas; Cormen et al., *Introduction to Algorithms*, cap. 22 (representação de grafos).
+
+---
+
+## Event sourcing
+**Definição:** a fonte da verdade é a lista append-only de eventos (só INSERT, nunca UPDATE/DELETE). O estado do mundo é derivado aplicando os eventos em ordem: `estado(t) = fold(Apply, vazio, eventos[0..t])`. Snapshots são cache, não verdade.
+
+**Como funciona:**
+1. **Estado só muda por evento.** Toda regra do engine calcula eventos (`ActionRules.Resolve`, `ApplyNeeds`, `AdvanceTravel`...) e chama `Emit(e)`, que faz `Apply(e)` e guarda `e`. `Apply` é o único lugar com atribuições de estado. O caminho ao vivo e o de reconstrução executam o mesmo `Apply`.
+2. **Eventos carregam o resultado.** `Worked { Money = 48, Energy = 74 }`, `NeedsUpdated { ..., TicksStarving }`, `Stole { ThiefFood, VictimFood }`, `FoodBought { ..., MarketMoney }`. `Apply` só atribui — nenhuma regra roda na reconstrução, então o passado não muda se as regras mudarem.
+3. **RNG também é estado.** Cada tick termina com `TickEnded { Tick, RngState }` (o gênesis também). Reconstruído o mundo, a sequência aleatória continua do mesmo ponto: o futuro é idêntico, não só o presente.
+4. **Gravação (harness):** `SqliteEventStore` com Dapper. Tabelas `worlds` (seed, config JSON), `events` (world_id, seq, tick, type, payload JSON) e `snapshots` (world_id, tick, estado JSON). Cada tick = 1 transação. Payload com discriminador: `{"$type":"FoodBought","agentId":3,"price":5,"money":275,"food":1,"marketFoodStock":29,"marketMoney":35,"tick":40}`. O formato JSON fica no harness (`EventJson`); o engine não conhece formato de arquivo.
+5. **Snapshot a cada 100 ticks** (`SimulationSession`). `Resume` = último snapshot + eventos com `tick > snapshot.Tick`; sem snapshot, replay do gênesis.
+
+Números reais (seed 42, 5 agentes, 1000 ticks): 7.334 eventos (7,3/tick), payload médio 72 bytes, arquivo de 944 KB com 10 snapshots; escrita 0,52 ms/tick (0,05% do intervalo de 1000 ms); `Resume` pelo snapshot 15 ms; replay completo do gênesis 31 ms. A 1 tick/s isso dá ~3,4 MB/hora (a estimativa inicial de ~7 MB/h superestimou tamanho e quantidade de eventos).
+
+**Onde está no projeto:** `src/Demiurge.Engine/World.cs` (`Emit`, `Apply`, `FromEvents`, `FromSnapshot`, `ToSnapshot`), `WorldSnapshot.cs`, `Events/WorldEvent.cs`; `src/Demiurge.Harness/Persistence/SqliteEventStore.cs`, `EventJson.cs`, `SimulationSession.cs`. Testes: `tests/Demiurge.Engine.Tests/EventSourcingTests.cs` (cobertura de todos os tipos de evento; reconstrução do gênesis e do snapshot com `Assert.Equivalent` estrito; mundo reconstruído continua igual por 250 ticks) e `tests/Demiurge.Harness.Tests/` (round-trip JSON de cada evento, store, e o teste de restart: parar no tick 250, retomar do banco, rodar mais 250 e comparar com 500 ticks ininterruptos).
+
+**Por que usamos:** regra inviolável 3. Histórico completo ("o que aconteceu no tick 40?"), mundo que sobrevive a restart, replay e comparação A/B de mundos, auditoria (o log é a visão de deus; base para medir dores e, mais tarde, avaliar decisões).
+
+**Alternativas e trade-offs:**
+- *Persistir só o estado atual* (UPDATE por tick): simples, mas sem história nem replay. Descartado.
+- *Command sourcing* (gravar seed + decisões e reexecutar o engine): muito mais compacto, mas o mundo reconstruído muda quando as regras mudam no código. Mantemos as decisões reproduzíveis pelo determinismo, mas a verdade é o evento.
+- *Mutação direta + evento como "log"* (como era até o conceito 4): dois caminhos de escrita que podem divergir; um estado mudado sem evento só seria pego por teste. Trocado por "só `Apply` muda estado".
+- *Marten / EventStoreDB*: projeções, versionamento e concorrência prontos, mas exigem Postgres ou servidor dedicado. Proibidos até a dor (etapa 7).
+
+**Limitações conhecidas:** evolução de schema — renomear um evento ou campo quebra a leitura de eventos antigos (exigirá *upcasting* ou versão no `$type`); o log cresce sem limite (dor `STORE_GROWTH`); `Append` lê `MAX(seq)` a cada tick, aceitável com um único escritor, errado com escritores concorrentes; snapshot e eventos não são gravados na mesma transação (se cair entre os dois, retoma-se do snapshot anterior — correto, só mais lento).
+
+**Referências:** Martin Fowler, *Event Sourcing* (martinfowler.com, 2005); Greg Young, *CQRS Documents* (2010); Microsoft Learn, *Event Sourcing pattern* (Azure Architecture Center).

@@ -5,14 +5,22 @@ namespace Demiurge.Engine.Tests;
 
 /// <summary>
 /// Minimal deterministic policy used only by tests to feed decisions into the engine.
-/// Not the RuleBasedBrain (that comes with its own concept): just enough to exercise actions and travel.
+/// Not the RuleBasedBrain (that comes with its own concept): just enough to exercise every action,
+/// so long runs produce every event type (travel, talk, theft, witnesses, rejections, deaths).
 /// </summary>
 internal static class ScriptedPolicy
 {
+    private static readonly AgentId Thief = new(3);
+
     public static AgentAction? Decide(Perception p)
     {
         if (p.Location is not AtPlace { Place: var here })
             return null; // in transit: no decision
+
+        if (p.Self == Thief && p.Food == 0 && p.PeoplePresent.Count > 0)
+            return new Steal(p.PeoplePresent[0]);
+        if (p.Tick % 10 == 0 && p.PeoplePresent.Count > 0)
+            return new Talk(p.PeoplePresent[0], $"tick {p.Tick}: tudo bem?");
 
         return p switch
         {

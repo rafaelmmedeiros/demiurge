@@ -59,6 +59,7 @@ public sealed class PlacesGraph
         Places = places.OrderBy(p => p.Id.Value, StringComparer.Ordinal).ToList();
         _byId = Places.ToDictionary(p => p.Id);
         _travel = [];
+        var edgeList = new List<Edge>();
 
         foreach (var e in edges)
         {
@@ -68,7 +69,13 @@ public sealed class PlacesGraph
                 throw new ArgumentException($"Edge {e} must join two different places with at least 1 tick.");
             if (!_travel.TryAdd(Key(e.A, e.B), e.Ticks))
                 throw new ArgumentException($"Duplicate edge {e}.");
+            edgeList.Add(e);
         }
+
+        Edges = edgeList
+            .OrderBy(e => Key(e.A, e.B).Item1.Value, StringComparer.Ordinal)
+            .ThenBy(e => Key(e.A, e.B).Item2.Value, StringComparer.Ordinal)
+            .ToList();
 
         for (int i = 0; i < Places.Count; i++)
             for (int j = i + 1; j < Places.Count; j++)
@@ -77,6 +84,8 @@ public sealed class PlacesGraph
     }
 
     public IReadOnlyList<Place> Places { get; }
+
+    public IReadOnlyList<Edge> Edges { get; }
 
     public Place? Find(PlaceId id) => _byId.GetValueOrDefault(id);
 

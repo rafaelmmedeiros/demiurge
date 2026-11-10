@@ -1,8 +1,10 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Demiurge.Engine/Demiurge.Engine.csproj" />
+    <Project Path="src/Demiurge.Harness/Demiurge.Harness.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Demiurge.Engine.Tests/Demiurge.Engine.Tests.csproj" />
+    <Project Path="tests/Demiurge.Harness.Tests/Demiurge.Harness.Tests.csproj" />
   </Folder>
 </Solution>

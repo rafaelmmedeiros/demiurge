@@ -14,7 +14,7 @@ public sealed class Market
 
     public int FoodStock { get; internal set; }
 
-    public int FoodPrice { get; }
+    public int FoodPrice { get; internal set; }
 
     public int Money { get; internal set; }
 }
