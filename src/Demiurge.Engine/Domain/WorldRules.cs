@@ -11,7 +11,10 @@ public static class WorldRules
     public const int WagePerWork = 10;
     public const int WorkEnergyCost = 8;
     public const int MealHungerRelief = 30;
-    public const int RestEnergyGain = 10;
+    public const int RestEnergyGainAtHome = 10;
+    public const int RestEnergyGainElsewhere = 5;
+
+    public const int MaxMessageLength = 200;
 }
 
 /// <summary>
@@ -32,4 +35,10 @@ public sealed record WorldConfig
     public int InitialMarketStock { get; init; } = 20;
     public int MarketRestockPerTick { get; init; } = 1;
     public int MarketCapacity { get; init; } = 30;
+
+    public PlacesGraph Graph { get; init; } = PlacesGraph.Default;
+    public PlaceId StartPlace { get; init; } = PlacesGraph.Home;
+
+    /// <summary>Chance, per agent present (victim included), of seeing a theft.</summary>
+    public int TheftWitnessChancePercent { get; init; } = 50;
 }

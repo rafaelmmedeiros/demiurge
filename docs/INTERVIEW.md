@@ -59,3 +59,19 @@ Porque os cérebros respondem em ordem arbitrária — em paralelo, com latênci
 
 **[Profundidade] Qual a diferença para o "Game Master" do Concordia?**
 No Concordia (DeepMind) um LLM "mestre do jogo" lê a ação em texto livre e narra o resultado. É muito expressivo — qualquer ação é possível — mas o resultado não é determinístico nem verificável por código. No DEMIURGE o engine é código: só existem as ações do schema, mas cada resultado é reproduzível e testável. O custo é que comportamento novo exige ação nova no engine.
+
+---
+
+## Espaço e informação
+
+**[Projeto] Como funciona o deslocamento no seu mundo?**
+O espaço é um grafo completo de 4 lugares com custo em ticks nas arestas (Casa–Trabalho = 2, a maioria = 1). `MoveTo` coloca o agente em `InTransit(origem, destino, ticksRestantes)` e emite `TravelStarted`; ao fim de cada tick a viagem avança e, ao chegar a 0, vira `AtPlace(destino)` com `Arrived`. Em trânsito o agente não decide, não pode ser alvo e não testemunha nada, mas a fome continua subindo. Por isso deslocar-se custa tempo de verdade: no mesmo seed, a política simples que sobrevivia sem espaço passou a morrer de fome com ele.
+
+**[Projeto] Um agente rouba outro. Como o mundo decide quem fica sabendo?**
+O engine sempre emite `Stole` — é o log de eventos, a visão de deus. Depois, cada agente presente no mesmo lugar, inclusive a vítima e exceto o ladrão, sorteia 50% com o RNG da seed, em ordem de id. Quem acerta recebe `TheftWitnessed` e o roubo aparece em `TheftsWitnessed` na sua percepção do tick seguinte. Quem não viu não sabe — a vítima percebe a comida a menos, mas não quem levou. O mundo nunca pune: só quem viu pode reagir.
+
+**[Profundidade] O que é informação assimétrica no seu projeto e por que ela importa?**
+É a diferença entre o log de eventos (tudo que aconteceu) e a percepção de cada agente (só o que ele viu, ouviu e o que está no lugar dele). Ela é construída de propósito: `Perceive()` devolve apenas lugar, presentes, mensagens ouvidas e roubos testemunhados no último tick. Sem ela, todo crime seria conhecido por todos e não haveria impunidade, boato, investigação ou mentira — exatamente os fenômenos sociais que o projeto quer observar. Também é um ponto de avaliação: um agente de LLM que "sabe" algo que não estava na percepção denuncia vazamento de contexto.
+
+**[Profundidade] Por que um grafo completo e não Dijkstra/A*?**
+Com 4 lugares, um grafo completo tem 6 arestas e responde "quanto custa ir de A a B" com uma consulta. Pathfinding só é necessário quando há rotas que passam por lugares intermediários. O construtor do `PlacesGraph` rejeita grafo incompleto, então a hipótese está garantida em código. O limite é o crescimento n(n−1)/2: com 20 lugares seriam 190 arestas a configurar — aí entra Dijkstra e o grafo deixa de precisar ser completo.

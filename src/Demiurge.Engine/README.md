@@ -13,3 +13,4 @@
 - Tick-based simulation — `World.Step()`
 - Determinism and seed — `Randomness/IRandom`, `Randomness/SplitMix64`
 - Authoritative engine — `Actions/AgentAction`, `Actions/ActionRules`, `Perception`, `World.ResolveDecisions`
+- Places graph — `Domain/Places`, `World.AdvanceTravel`, `ActionRules.ApplySteal`

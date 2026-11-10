@@ -1,3 +1,5 @@
+using Demiurge.Engine.Actions;
+
 namespace Demiurge.Engine.Domain;
 
 /// <summary>
@@ -7,13 +9,14 @@ namespace Demiurge.Engine.Domain;
 /// </summary>
 public sealed class Agent
 {
-    internal Agent(AgentId id, int hunger, int energy, int food, int money)
+    internal Agent(AgentId id, int hunger, int energy, int food, int money, Location location)
     {
         Id = id;
         Hunger = hunger;
         Energy = energy;
         Food = food;
         Money = money;
+        Location = location;
     }
 
     public AgentId Id { get; }
@@ -33,6 +36,17 @@ public sealed class Agent
     /// <summary>Consecutive ticks with Hunger at 100.</summary>
     public int TicksStarving { get; internal set; }
 
+    public Location Location { get; internal set; }
+
     /// <summary>Reason the agent's proposal was refused in the last tick, if it was. Cleared every tick.</summary>
-    public Actions.RejectionReason? LastRejection { get; internal set; }
+    public RejectionReason? LastRejection { get; internal set; }
+
+    // What this agent observed during the last tick. Cleared at the start of every tick.
+    // This is the agent's view, not god's view: the event log has every theft; this has only the seen ones.
+    internal List<HeardMessage> MessagesHeard { get; } = [];
+    internal List<WitnessedTheft> TheftsWitnessed { get; } = [];
 }
+
+public sealed record HeardMessage(AgentId From, string Text);
+
+public sealed record WitnessedTheft(AgentId Thief, AgentId Victim);

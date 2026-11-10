@@ -52,7 +52,7 @@ public class AuthoritativeEngineTests
     [Fact]
     public void Buy_without_money_is_rejected()
     {
-        var world = NewWorld(new WorldConfig { AgentCount = 1, InitialMoney = (4, 5), FoodPrice = 5 });
+        var world = NewWorld(new WorldConfig { AgentCount = 1, InitialMoney = (4, 5), FoodPrice = 5, StartPlace = PlacesGraph.Market });
 
         var report = Do(world, A1, new Buy());
 
@@ -63,7 +63,7 @@ public class AuthoritativeEngineTests
     [Fact]
     public void Buy_from_empty_market_is_rejected()
     {
-        var world = NewWorld(new WorldConfig { AgentCount = 1, InitialMarketStock = 0, MarketRestockPerTick = 0 });
+        var world = NewWorld(new WorldConfig { AgentCount = 1, InitialMarketStock = 0, MarketRestockPerTick = 0, StartPlace = PlacesGraph.Market });
 
         var report = Do(world, A1, new Buy());
 
@@ -76,7 +76,7 @@ public class AuthoritativeEngineTests
         var world = NewWorld(new WorldConfig
         {
             AgentCount = 1, InitialMoney = (30, 31), InitialFood = (0, 1),
-            FoodPrice = 5, InitialMarketStock = 10, MarketRestockPerTick = 0,
+            FoodPrice = 5, InitialMarketStock = 10, MarketRestockPerTick = 0, StartPlace = PlacesGraph.Market,
         });
 
         Do(world, A1, new Buy());
@@ -93,6 +93,7 @@ public class AuthoritativeEngineTests
         var world = NewWorld(new WorldConfig
         {
             AgentCount = 2, InitialMoney = (50, 51), InitialMarketStock = 1, MarketRestockPerTick = 0,
+            StartPlace = PlacesGraph.Market,
         });
 
         var report = world.Step([new AgentDecision(A1, new Buy()), new AgentDecision(A2, new Buy())]);
@@ -107,7 +108,7 @@ public class AuthoritativeEngineTests
     [Fact]
     public void Work_pays_wage_and_costs_energy()
     {
-        var world = NewWorld(new WorldConfig { AgentCount = 1, InitialMoney = (20, 21), InitialEnergy = (50, 51) });
+        var world = NewWorld(new WorldConfig { AgentCount = 1, InitialMoney = (20, 21), InitialEnergy = (50, 51), StartPlace = PlacesGraph.Workplace });
 
         Do(world, A1, new Work());
 
@@ -118,7 +119,7 @@ public class AuthoritativeEngineTests
     [Fact]
     public void Work_when_too_tired_is_rejected()
     {
-        var world = NewWorld(new WorldConfig { AgentCount = 1, InitialEnergy = (5, 6) });
+        var world = NewWorld(new WorldConfig { AgentCount = 1, InitialEnergy = (5, 6), StartPlace = PlacesGraph.Workplace });
 
         var report = Do(world, A1, new Work());
 
@@ -134,7 +135,7 @@ public class AuthoritativeEngineTests
 
         Assert.Equal(RejectionReason.Exhausted, SingleRejection(report).Reason);
         Assert.Single(report.Events.OfType<Rested>());
-        Assert.Equal(WorldRules.RestEnergyGain - WorldRules.EnergyPerTick, world.Agents[0].Energy);
+        Assert.Equal(WorldRules.RestEnergyGainAtHome - WorldRules.EnergyPerTick, world.Agents[0].Energy);
     }
 
     // ---------- Malformed proposals never break the world ----------
@@ -202,7 +203,7 @@ public class AuthoritativeEngineTests
     [Fact]
     public void Order_of_submitted_decisions_does_not_change_the_outcome()
     {
-        var config = new WorldConfig { AgentCount = 5, InitialMarketStock = 2, MarketRestockPerTick = 0, InitialMoney = (50, 51) };
+        var config = new WorldConfig { AgentCount = 5, InitialMarketStock = 2, MarketRestockPerTick = 0, InitialMoney = (50, 51), StartPlace = PlacesGraph.Market };
         var buyAll = Enumerable.Range(1, 5).Select(i => new AgentDecision(new AgentId(i), new Buy())).ToList();
 
         var forward = NewWorld(config).Step(buyAll).Events.Select(e => e.ToString()).ToList();

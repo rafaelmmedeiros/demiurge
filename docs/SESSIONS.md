@@ -24,10 +24,11 @@ Formato: o que foi feito · decisões · pendências.
 - Conceitos 1 (simulação baseada em ticks) e 2 (determinismo e seed) explicados, aprovados, implementados e documentados (`CONCEPTS.md`, `INTERVIEW.md`).
 - Primeiro código: `Demiurge.slnx`, `src/Demiurge.Engine` (`World.Step`, necessidades, morte por fome, `IRandom`/`SplitMix64`), `tests/Demiurge.Engine.Tests` — 10 testes verdes (vetor de referência do PRNG, determinismo por SHA-256 de 500 ticks, regras de necessidade e fome).
 - Conceito 3 (engine autoritativo) explicado, aprovado e implementado: ações `Rest/Eat/Work/Buy`, mercado, `Perception` imutável, validação com `ActionRejected` e motivo na percepção seguinte. Ordem do tick mudou para decisões → necessidades → mercado. 25 testes verdes.
+- Conceito 4 (grafo de lugares) explicado, aprovado e implementado: 4 lugares em grafo completo, `MoveTo` com tempo de viagem, requisitos de lugar, `Talk`, `Steal` com testemunhas (50%, vítima inclusa), percepção com lugar/presentes/mensagens/roubos vistos. 42 testes verdes.
 - Revisão da stack (ADR-003): .NET 10 LTS (11 saiu hoje, mesmo fim de suporte), `.slnx`, xUnit v3 4.0.3 em Microsoft Testing Platform v2, Central Package Management.
 
 **Pendências**
 - Líder revisar o rascunho do pitch (`VISION.md` §8).
 - Ainda não existe `docker-compose.yml`/Host: a regra 5 (sobe com um comando) passa a valer quando o Host entrar (conceito 9 / dashboard). Avaliar antecipar um Host mínimo com `/health`.
-- Próximo conceito: 4 — grafo de lugares (MoveTo, Talk, Steal, testemunhas). Ordem em `docs/context/stage-1.md`.
-- Economia generosa demais (300 ticks, seed 42: zero mortes, ~800 de dinheiro por agente com política simples). Não ajustar agora; usar como pressão quando a dor aparecer.
+- Próximo conceito: 5 — event sourcing (persistir eventos em SQLite, reconstruir estado). Ordem em `docs/context/stage-1.md`.
+- Economia: sem espaço, generosa demais (~800 de dinheiro por agente). Com o grafo, a mesma política simples entra em colapso: 4 de 5 mortos em 300 ticks, presos no mercado sem dinheiro e exaustos (`InsufficientMoney` 56×, `Exhausted` 73×) — só o ladrão sobrevive. É comportamento da política, não bug do engine; é o tipo de sinal que os detectores `REPETITION_LOOP`/`ACTION_REJECTION_RATE` devem capturar.

@@ -10,7 +10,8 @@ namespace Demiurge.Engine;
 /// <see cref="Step"/>: one call = one tick = one simulated hour. Nothing changes between ticks.
 /// Concepts: Tick-based simulation — docs/CONCEPTS.md#simulação-baseada-em-ticks ;
 ///           Determinism and seed — docs/CONCEPTS.md#determinismo-e-seed ;
-///           Authoritative engine — docs/CONCEPTS.md#engine-autoritativo
+///           Authoritative engine — docs/CONCEPTS.md#engine-autoritativo ;
+///           Places graph — docs/CONCEPTS.md#grafo-de-lugares
 /// </summary>
 public sealed class World
 {
@@ -37,10 +38,14 @@ public sealed class World
     /// <summary>RNG state; goes into snapshots so a restored world continues the same random sequence.</summary>
     public ulong RngState => _rng.State;
 
+    internal IRandom Rng => _rng;
+
     /// <summary>Creates a world from its config. Returns the genesis report (tick 0).</summary>
     public static (World World, TickReport Genesis) Create(WorldConfig config)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(config.AgentCount);
+        if (config.Graph.Find(config.StartPlace) is null)
+            throw new ArgumentException($"Start place {config.StartPlace} is not in the graph.", nameof(config));
 
         var rng = new SplitMix64(config.Seed);
         var agents = new List<Agent>(config.AgentCount);
@@ -53,9 +58,10 @@ public sealed class World
                 hunger: rng.NextInt(config.InitialHunger.Min, config.InitialHunger.Max),
                 energy: rng.NextInt(config.InitialEnergy.Min, config.InitialEnergy.Max),
                 food: rng.NextInt(config.InitialFood.Min, config.InitialFood.Max),
-                money: rng.NextInt(config.InitialMoney.Min, config.InitialMoney.Max));
+                money: rng.NextInt(config.InitialMoney.Min, config.InitialMoney.Max),
+                location: new AtPlace(config.StartPlace));
             agents.Add(agent);
-            events.Add(new AgentSpawned(0, agent.Id, agent.Hunger, agent.Energy, agent.Food, agent.Money));
+            events.Add(new AgentSpawned(0, agent.Id, agent.Hunger, agent.Energy, agent.Food, agent.Money, config.StartPlace));
         }
 
         var market = new Market(config.InitialMarketStock, config.FoodPrice);
@@ -66,14 +72,19 @@ public sealed class World
 
     /// <summary>
     /// What one agent can see now (end of the last tick). An immutable copy: the brain gets no
-    /// reference to mutable state.
+    /// reference to mutable state, and sees only its surroundings, not the whole world.
     /// </summary>
     public Perception Perceive(AgentId id)
     {
         var agent = FindAgent(id) ?? throw new ArgumentException($"Unknown agent {id}.", nameof(id));
+        IReadOnlyList<AgentId> present = agent.Location is AtPlace at
+            ? PresentAt(at.Place).Where(a => a.Id != agent.Id).Select(a => a.Id).ToList()
+            : [];
+
         return new Perception(
             Tick, agent.Id, agent.Hunger, agent.Energy, agent.Food, agent.Money,
-            Market.FoodStock, Market.FoodPrice, agent.LastRejection);
+            agent.Location, present, agent.MessagesHeard.ToList(), agent.TheftsWitnessed.ToList(),
+            Market.FoodStock, Market.FoodPrice, Config.Graph, agent.LastRejection);
     }
 
     /// <summary>Advances one tick with no decisions (every agent idles).</summary>
@@ -83,7 +94,7 @@ public sealed class World
     /// Advances exactly one tick. Decisions were made by brains looking at the state of the
     /// previous tick. Phases, in fixed order:
     /// 1. resolve decisions (validate → apply or reject), in a seeded shuffled order;
-    /// 2. the hour passes: needs decay, starvation;
+    /// 2. the hour passes: needs decay, starvation, travel advances;
     /// 3. the market restocks.
     /// </summary>
     public TickReport Step(IReadOnlyList<AgentDecision> decisions)
@@ -92,10 +103,15 @@ public sealed class World
         var events = new List<WorldEvent> { new TickStarted(Tick) };
 
         foreach (var agent in _agents)
+        {
             agent.LastRejection = null;
+            agent.MessagesHeard.Clear();
+            agent.TheftsWitnessed.Clear();
+        }
 
         ResolveDecisions(decisions, events);
         ApplyNeeds(events);
+        AdvanceTravel(events);
         RestockMarket(events);
 
         return new TickReport(Tick, events);
@@ -132,6 +148,12 @@ public sealed class World
                 continue;
             }
 
+            if (agent.Location is InTransit)
+            {
+                Reject(agent, decision.Action, RejectionReason.InTransit, events);
+                continue;
+            }
+
             var action = decision.Action;
             if (agent.Energy == 0 && action is not Rest)
             {
@@ -140,11 +162,11 @@ public sealed class World
                 action = new Rest();
             }
 
-            var reason = ActionRules.Validate(agent, action, Market);
+            var reason = ActionRules.Validate(agent, action, this);
             if (reason is { } r)
                 Reject(agent, action, r, events);
             else
-                events.Add(ActionRules.Apply(Tick, agent, action, Market));
+                events.AddRange(ActionRules.Apply(Tick, agent, action, this));
         }
     }
 
@@ -174,6 +196,27 @@ public sealed class World
         }
     }
 
+    private void AdvanceTravel(List<WorldEvent> events)
+    {
+        foreach (var agent in _agents)
+        {
+            if (!agent.IsAlive || agent.Location is not InTransit trip)
+                continue;
+
+            int remaining = trip.TicksRemaining - 1;
+            if (remaining == 0)
+            {
+                agent.Location = new AtPlace(trip.To);
+                events.Add(new Arrived(Tick, agent.Id, trip.To));
+            }
+            else
+            {
+                agent.Location = trip with { TicksRemaining = remaining };
+                events.Add(new TravelProgressed(Tick, agent.Id, trip.From, trip.To, remaining));
+            }
+        }
+    }
+
     private void RestockMarket(List<WorldEvent> events)
     {
         int restocked = Math.Min(Config.MarketCapacity, Market.FoodStock + Config.MarketRestockPerTick);
@@ -184,5 +227,15 @@ public sealed class World
         events.Add(new MarketRestocked(Tick, Market.FoodStock));
     }
 
-    private Agent? FindAgent(AgentId id) => _agents.Find(a => a.Id == id);
+    internal Agent? FindAgent(AgentId id) => _agents.Find(a => a.Id == id);
+
+    /// <summary>Living agents standing at a place (not in transit), in id order.</summary>
+    internal IEnumerable<Agent> PresentAt(PlaceId place) =>
+        _agents.Where(a => a.IsAlive && a.Location is AtPlace at && at.Place == place);
+
+    /// <summary>True if the target exists, is alive, and stands at the same place as the agent.</summary>
+    internal bool IsPresentWith(Agent agent, AgentId targetId) =>
+        agent.Location is AtPlace here
+        && FindAgent(targetId) is { IsAlive: true, Location: AtPlace there }
+        && there.Place == here.Place;
 }

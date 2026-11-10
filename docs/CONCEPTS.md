@@ -68,8 +68,8 @@ O LLM não é determinístico (nem com temperatura 0); por isso a regra fala em 
 **Definição:** só o engine altera o estado do mundo. O cérebro de um agente (regras ou LLM) devolve uma **proposta** — uma ação de um conjunto fechado — e o engine valida: aplica e emite eventos do que mudou, ou rejeita com `ActionRejected(motivo)` sem mudar estado. Regra inviolável 1.
 
 **Como funciona:**
-1. O cérebro recebe `Perception`, um `record` imutável (fome, energia, comida, dinheiro, estoque e preço do mercado, `LastRejection`). Ele nunca recebe o `Agent`, cujos setters são `internal` ao engine: sem referência a estado mutável, não há como alterá-lo.
-2. O cérebro devolve `AgentDecision(AgentId, AgentAction)`. `AgentAction` é uma hierarquia fechada: `Rest`, `Eat`, `Work`, `Buy` (MoveTo/Talk/Steal entram com o grafo de lugares). Com LLM, essa hierarquia vira o JSON schema da tool call.
+1. O cérebro recebe `Perception`, um `record` imutável (fome, energia, comida, dinheiro, lugar, quem está presente, mensagens ouvidas, roubos vistos, estoque e preço do mercado, mapa, `LastRejection`). Ele nunca recebe o `Agent`, cujos setters são `internal` ao engine: sem referência a estado mutável, não há como alterá-lo.
+2. O cérebro devolve `AgentDecision(AgentId, AgentAction)`. `AgentAction` é uma hierarquia fechada: `Rest`, `Eat`, `Work`, `Buy`, `MoveTo`, `Talk`, `Steal` (as três últimas e os requisitos de lugar: ver *Grafo de lugares*). Com LLM, essa hierarquia vira o JSON schema da tool call.
 3. `World.Step(decisions)` ordena as decisões por `AgentId` (a ordem de chegada não pode importar) e embaralha com a seed.
 4. Para cada uma: agente inexistente → `UnknownAgent`; morto → `AgentNotAlive`; mais de uma proposta do mesmo agente → todas `DuplicateDecision`; energia 0 e ação diferente de `Rest` → `Exhausted`, e `Rest` é aplicado no lugar.
 5. `ActionRules.Validate` (função pura) confere a regra da ação; se passar, `ActionRules.Apply` muda o estado e devolve o evento.
@@ -97,3 +97,40 @@ Dado real (seed 42, tick 1): a ordem embaralhada foi agent-5, agent-4, agent-1, 
 **Limitações conhecidas:** o agente só pode fazer o que o schema prevê — comportamento novo exige ação nova no engine (o preço da verificabilidade). A rejeição informa só o motivo, não como corrigir. Observação da primeira rodada (seed 42, 300 ticks, política de teste): zero rejeições, zero mortes e dinheiro acumulando até ~800 por agente — a economia está generosa demais; vira pressão a criar quando a dor aparecer (ex.: `RESOURCE_COLLAPSE` ou escassez do modo deus).
 
 **Referências:** Vezhnevets et al., *Generative agent-based modeling with actions grounded in physical, social, or digital space using Concordia* (DeepMind, 2023); Yao et al., *ReAct* (2022); documentação de tool calling e structured outputs dos providers.
+
+---
+
+## Grafo de lugares
+**Definição:** o espaço do mundo é um grafo: nós são lugares (`Place`: id, tipo, coordenadas só para desenho) e arestas não direcionadas têm um custo em ticks de viagem. A posição de um agente é `AtPlace(lugar)` ou `InTransit(origem, destino, ticksRestantes)`. Decisão registrada no ADR-001.
+
+**Como funciona:**
+1. Mapa padrão (`PlacesGraph.Default`): `home`, `workplace`, `market`, `square`. Casa–Trabalho e Mercado–Trabalho = 2 ticks; demais pares = 1. O construtor exige grafo **completo** (todo par com aresta ≥ 1 tick), então não há pathfinding.
+2. Todos nascem em `home` (`WorldConfig.StartPlace`).
+3. `MoveTo(destino)`: valida (`UnknownPlace`, `AlreadyThere`), muda para `InTransit(aqui, destino, custo)` e emite `TravelStarted`. Na fase "a hora passa", `AdvanceTravel` decrementa: chegou a 0 → `AtPlace(destino)` + `Arrived`; senão `TravelProgressed`. Custo 1 = chega no fim do mesmo tick; custo 2 = passa um tick inteiro na estrada.
+4. Em trânsito: proposta rejeitada com `InTransit`, não pode ser alvo, não testemunha; fome e energia continuam correndo.
+5. Requisitos de lugar: `Work` só em `workplace`, `Buy` só em `market` (`NotAtRequiredPlace`); `Rest` dá +10 em casa e +5 fora; `Eat` em qualquer lugar.
+6. `Talk(alvo, texto)`: alvo vivo no mesmo lugar (`TargetNotPresent`), não pode ser si mesmo (`InvalidTarget`), texto não vazio e ≤ 200 caracteres. O texto entra em `MessagesHeard` do ouvinte, visível no tick seguinte.
+7. `Steal(alvo)`: mesmo lugar, alvo com comida (`NothingToSteal`); move 1 comida. O evento `Stole` é sempre emitido. Depois, cada agente presente — vítima inclusive, ladrão excluído — sorteia `Chance(50%)` em ordem de id; quem acerta recebe `TheftWitnessed` e o roubo entra em `TheftsWitnessed` da sua percepção.
+8. **Informação assimétrica:** o log de eventos é a visão de deus (todo `Stole`); a percepção é a visão do agente (só o que viu). A vítima que não viu percebe a comida a menos, mas não sabe quem levou.
+
+Dado real (seed 42, 300 ticks, política de teste em que o agent-3 rouba quando está sem comida e há alguém por perto):
+```
+TravelStarted { Tick = 1, AgentId = agent-5, From = home, To = workplace, Ticks = 2 }
+TravelProgressed { Tick = 1, AgentId = agent-1, From = home, To = workplace, TicksRemaining = 1 }
+Arrived { Tick = 2, AgentId = agent-1, Place = workplace }
+Stole { Tick = 40, Thief = agent-3, Victim = agent-4, Item = Food }      ← ninguém viu este
+```
+14 roubos, 13 testemunhos ao todo; 4 mortes por fome; só o ladrão sobreviveu.
+
+**Onde está no projeto:** `src/Demiurge.Engine/Domain/Places.cs` (`PlaceId`, `Place`, `Edge`, `PlacesGraph`, `Location`), `Actions/ActionRules.cs` (requisitos, `ApplySteal`), `World.cs` (`AdvanceTravel`, `PresentAt`, `IsPresentWith`, `Perceive`), `Domain/Agent.cs` (`MessagesHeard`, `TheftsWitnessed`); testes em `tests/Demiurge.Engine.Tests/PlacesGraphTests.cs`.
+
+**Por que usamos:** requisitos da visão — deslocamento custa tempo (P2.3) e crime só é punido se alguém vê (P3.4). Ver ADR-001.
+
+**Alternativas e trade-offs:**
+- *Grid* (ex.: 40×30): pathfinding (BFS/A*), colisão, mais estado por tick; nenhum ganho para a pergunta social. Descartado.
+- *Mundo abstrato*: sem deslocamento e sem "quem estava presente". Descartado.
+- *Grafo não completo + Dijkstra*: mais realista (rotas passando por lugares), mas pathfinding sem necessidade com 4 lugares. Adiado até doer.
+
+**Limitações conhecidas:** agentes na mesma estrada não se encontram; tempo de viagem igual para todos; grafo completo cresce em n(n−1)/2 arestas (4 lugares = 6; 20 = 190); resolução sequencial dentro do tick faz o resultado depender da ordem sorteada (se o alvo sai antes do ladrão agir, `TargetNotPresent`).
+
+**Referências:** Park et al., *Generative Agents* (2023) — mundo Smallville como árvore de áreas; Cormen et al., *Introduction to Algorithms*, cap. 22 (representação de grafos).
