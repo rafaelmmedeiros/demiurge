@@ -32,4 +32,7 @@ public sealed class Agent
 
     /// <summary>Consecutive ticks with Hunger at 100.</summary>
     public int TicksStarving { get; internal set; }
+
+    /// <summary>Reason the agent's proposal was refused in the last tick, if it was. Cleared every tick.</summary>
+    public Actions.RejectionReason? LastRejection { get; internal set; }
 }

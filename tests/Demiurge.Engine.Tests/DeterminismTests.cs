@@ -38,8 +38,10 @@ public class DeterminismTests
         var lines = new StringBuilder();
         Append(lines, genesis.Events);
 
+        // Decisions come from a deterministic scripted policy, so the whole loop
+        // (perceive → decide → validate/apply in seeded order) is covered by the hash.
         for (int i = 0; i < ticks; i++)
-            Append(lines, world.Step().Events);
+            Append(lines, world.Step(ScriptedPolicy.DecideAll(world)).Events);
 
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(lines.ToString())));
     }

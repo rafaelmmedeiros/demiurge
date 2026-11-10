@@ -7,6 +7,11 @@ public static class WorldRules
     public const int HungerPerTick = 4;
     public const int EnergyPerTick = 2;
     public const int StarvationTicks = 12;
+
+    public const int WagePerWork = 10;
+    public const int WorkEnergyCost = 8;
+    public const int MealHungerRelief = 30;
+    public const int RestEnergyGain = 10;
 }
 
 /// <summary>
@@ -22,4 +27,9 @@ public sealed record WorldConfig
     public (int Min, int Max) InitialEnergy { get; init; } = (70, 101);
     public (int Min, int Max) InitialFood { get; init; } = (0, 4);
     public (int Min, int Max) InitialMoney { get; init; } = (20, 51);
+
+    public int FoodPrice { get; init; } = 5;
+    public int InitialMarketStock { get; init; } = 20;
+    public int MarketRestockPerTick { get; init; } = 1;
+    public int MarketCapacity { get; init; } = 30;
 }

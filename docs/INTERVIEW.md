@@ -37,3 +37,25 @@ A regra é "mesma seed + mesma sequência de decisões = mesmo mundo", não "mes
 
 **[Projeto] Por que .NET 10 e não .NET 11, lançado no mesmo dia em que o projeto começou?** (ADR-003)
 O .NET 10 é LTS e o 11 é STS; com a nova política de suporte de dois anos para STS, os dois terminam em novembro de 2028, então não há vantagem de suporte. O 10 já estava instalado, com ecossistema maduro; o 11 estava no 11.0.0 do dia zero. Nada no projeto precisa de recurso do C# 15 hoje. Migrar é trocar o `TargetFramework` no `Directory.Build.props` e o SDK no `global.json` — duas linhas — então a decisão é barata de reverter.
+
+---
+
+## Engine autoritativo
+
+**[Fundamentos] Por que o LLM não altera o estado do mundo diretamente?**
+Porque um LLM alucina: pode "comprar" com dinheiro que não tem ou inventar comida. No DEMIURGE o cérebro só devolve uma proposta de um conjunto fechado (`Rest`, `Eat`, `Work`, `Buy`); o engine valida em `ActionRules.Validate` e aplica ou rejeita com `ActionRejected(motivo)`. Assim as invariantes — dinheiro nunca negativo, comida conservada — ficam num só arquivo, a sorte é sorteada no engine com a seed (determinismo) e uma prompt injection pode mudar a escolha do agente, mas nunca as regras do mundo.
+
+**[Projeto] Como você garante, no código, que o cérebro não consegue mudar o estado?**
+Por tipo, não por convenção. O cérebro recebe `Perception`, um `record` imutável com cópias dos valores; nunca recebe o `Agent`, cujos setters são `internal` ao assembly do engine. Sem referência a nada mutável, não há o que alterar. A única saída do cérebro é um `AgentDecision(AgentId, AgentAction)`. Um teste confirma que a percepção é uma cópia: depois de um tick, a percepção antiga mantém os valores antigos.
+
+**[Projeto] O que acontece com uma ação inválida? O agente fica sabendo?**
+Nenhum estado muda; o engine emite `ActionRejected { AgentId, Action, Reason }`, grava o motivo em `Agent.LastRejection` e, no tick seguinte, `Perceive()` devolve esse motivo. É o laço de feedback: o agente vê `NoFood` e pode decidir comprar. O motivo dura um tick. Se mais de 20% das ações de um agente forem rejeitadas, a dor `ACTION_REJECTION_RATE` aponta percepção incompleta ou prompt ruim.
+
+**[Profundidade] Por que não usar tools com efeito colateral, como a maioria dos frameworks de agentes?**
+Com tools que mutam, cada chamada altera o mundo no momento em que acontece: quem responde primeiro age primeiro, a validação fica espalhada por cada tool e não existe resolução simultânea no tick. Aqui a tool call é só uma proposta: todas as decisões do tick são coletadas, ordenadas por id, embaralhadas pela seed e validadas num único lugar. Perde-se a possibilidade de encadear várias ações num tick; ganha-se determinismo e invariantes verificáveis.
+
+**[Profundidade] Por que ordenar as decisões por id antes de embaralhar?**
+Porque os cérebros respondem em ordem arbitrária — em paralelo, com latência de rede variável. Se o embaralhamento partisse da ordem de chegada, essa ordem não determinística vazaria para o resultado. Ordenando por `AgentId` primeiro, a entrada do shuffle é sempre a mesma e o resultado depende só da seed. Um teste envia as mesmas cinco compras em ordem direta e invertida e exige eventos idênticos.
+
+**[Profundidade] Qual a diferença para o "Game Master" do Concordia?**
+No Concordia (DeepMind) um LLM "mestre do jogo" lê a ação em texto livre e narra o resultado. É muito expressivo — qualquer ação é possível — mas o resultado não é determinístico nem verificável por código. No DEMIURGE o engine é código: só existem as ações do schema, mas cada resultado é reproduzível e testável. O custo é que comportamento novo exige ação nova no engine.

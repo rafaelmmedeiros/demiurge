@@ -16,14 +16,23 @@ The world is a graph of places, not a grid (see `docs/VISION.md` §4, `docs/DECI
 - `Hunger +4`, `Energy -2`.
 - `Hunger >= 100` for 12 consecutive ticks = death by starvation.
 - `Energy = 0` forces `Rest`.
-- Gain values (wage, energy recovered, food per meal) are defined during stage 1 and recorded here.
+- Order inside a tick: decisions are resolved first (the agent acts during the hour), then needs decay, then the market restocks.
+
+| Value | Constant / config | Default |
+|---|---|---|
+| Wage per `Work` | `WorldRules.WagePerWork` | 10 |
+| Energy cost of `Work` | `WorldRules.WorkEnergyCost` | 8 |
+| Hunger relief per `Eat` | `WorldRules.MealHungerRelief` | 30 |
+| Energy per `Rest` | `WorldRules.RestEnergyGain` | 10 |
+| Food price | `WorldConfig.FoodPrice` | 5 |
+| Market stock: initial / restock per tick / capacity | `WorldConfig` | 20 / 1 / 30 |
 
 ## Actions (fixed schema)
 
 | Action | Where | Notes |
 |---|---|---|
 | `MoveTo(placeId)` | anywhere | starts transit; arrives after the edge's travel time |
-| `Work` | `Workplace` | earns money |
+| `Work` | `Workplace` | earns money; requires Energy ≥ `WorkEnergyCost` |
 | `Buy` | `Market` | requires money and market stock |
 | `Eat` | anywhere | requires food |
 | `Rest` | anywhere | recovers more at `Home` than elsewhere |
@@ -33,6 +42,9 @@ The world is a graph of places, not a grid (see `docs/VISION.md` §4, `docs/DECI
 ## Engine validation
 - Location requirements above; target must be alive, at the same place, not in transit.
 - `Steal`: each other agent at the same place in the same tick (not in transit) has a seeded chance of seeing it → event `TheftWitnessed`. **The world never punishes**; consequences come only from other agents.
+- Engine-level rejections: `UnknownAgent`, `AgentNotAlive`, `DuplicateDecision` (all proposals of an agent that sent more than one), `Exhausted` (energy 0 and action other than `Rest`: refused, `Rest` applied instead).
+- Decisions are sorted by `AgentId` and then shuffled with the seeded RNG: submission order never matters.
+- Brains receive an immutable `Perception`, never the mutable `Agent`.
 - A rejected action emits `ActionRejected` with a reason (e.g. `NotAtRequiredPlace`, `TargetNotPresent`, `InsufficientMoney`); that reason enters the agent's perception on the next tick.
 - Movement events: `TravelStarted`, `Arrived`.
 

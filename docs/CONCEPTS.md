@@ -8,14 +8,19 @@ Glossário vivo. Uma entrada por conceito, no formato de `docs/context/mentoring
 **Definição:** o tempo do mundo avança em passos discretos chamados ticks; entre dois ticks nada muda. No projeto, 1 tick = 1 hora simulada, executado a cada `TickIntervalMs` (default 1000 ms) de tempo real.
 
 **Como funciona:**
-1. `World.Step()` incrementa `Tick` e emite `TickStarted(t)`.
-2. Fases em ordem fixa. Hoje só existe a fase de necessidades: para cada agente vivo, em ordem de `AgentId`, `Hunger += 4` (teto 100), `Energy -= 2` (piso 0), evento `NeedsUpdated`. Fome em 100 por 12 ticks seguidos → `AgentDied(Starvation)`.
-3. Fases futuras entram no mesmo lugar: percepção (todos veem o estado de `t`), decisões em paralelo com timeout, validação e aplicação uma a uma em ordem embaralhada pela seed.
+1. Antes do tick, cada cérebro recebe `world.Perceive(id)`: uma cópia do estado ao fim do tick anterior. Todos veem o mesmo retrato.
+2. `World.Step(decisions)` incrementa `Tick` e emite `TickStarted(t)`.
+3. Fases em ordem fixa:
+   1. **Decisões:** validar → aplicar ou rejeitar, uma a uma, em ordem embaralhada pela seed (ver *Engine autoritativo*).
+   2. **A hora passa:** para cada agente vivo, em ordem de `AgentId`, `Hunger += 4` (teto 100), `Energy -= 2` (piso 0), evento `NeedsUpdated`. Fome em 100 por 12 ticks seguidos → `AgentDied(Starvation)`.
+   3. **Mercado repõe** 1 unidade (teto 30) → `MarketRestocked`.
 4. `Step()` devolve um `TickReport(t, eventos)`.
+
+Ordem "ações antes do custo da hora": o agente age durante a hora e paga fome/energia no fim dela. Assim, quem decide comer com fome 96 come antes de a fome chegar a 100. (O primeiro esboço da explicação aplicava necessidades antes das decisões; mudou ao implementar o conceito 3.)
 
 Dado real (seed 42, tick 1): `NeedsUpdated { Tick = 1, AgentId = agent-1, Hunger = 29, Energy = 96 }` — o agent-1 nasceu com fome 25 e energia 98. Sem ações, morre no tick 30: chega a 100 no tick ⌈75/4⌉ = 19 e completa 12 ticks no 30.
 
-**Onde está no projeto:** `src/Demiurge.Engine/World.cs` (`Step`, `ApplyNeeds`); `src/Demiurge.Engine/Domain/WorldRules.cs`; testes em `tests/Demiurge.Engine.Tests/TickTests.cs`.
+**Onde está no projeto:** `src/Demiurge.Engine/World.cs` (`Step`, `ApplyNeeds`, `RestockMarket`); `src/Demiurge.Engine/Domain/WorldRules.cs`; testes em `tests/Demiurge.Engine.Tests/TickTests.cs`.
 
 **Por que usamos:** um LLM leva 0,5–5 s para decidir; com ticks, o mundo fica congelado num estado consistente enquanto todos pensam, e o replay é trivial (estado em `t` = inicial + eventos de 1..t). Requisito de modelo, não dor medida.
 
@@ -56,3 +61,39 @@ O LLM não é determinístico (nem com temperatura 0); por isso a regra fala em 
 **Limitações conhecidas:** um único fluxo de RNG para tudo: adicionar uma chamada nova num sistema (ex.: chance de testemunha) desloca todos os números seguintes, mudando o mundo inteiro para a mesma seed. Se isso virar dor, separar fluxos por finalidade (seed derivada por subsistema). Não serve para criptografia.
 
 **Referências:** Steele, Lea, Flood, *Fast Splittable Pseudorandom Number Generators* (OOPSLA 2014); Vigna, *prng.di.unimi.it*; documentação de `System.Random` (Microsoft Learn), seção sobre compatibilidade do algoritmo.
+
+---
+
+## Engine autoritativo
+**Definição:** só o engine altera o estado do mundo. O cérebro de um agente (regras ou LLM) devolve uma **proposta** — uma ação de um conjunto fechado — e o engine valida: aplica e emite eventos do que mudou, ou rejeita com `ActionRejected(motivo)` sem mudar estado. Regra inviolável 1.
+
+**Como funciona:**
+1. O cérebro recebe `Perception`, um `record` imutável (fome, energia, comida, dinheiro, estoque e preço do mercado, `LastRejection`). Ele nunca recebe o `Agent`, cujos setters são `internal` ao engine: sem referência a estado mutável, não há como alterá-lo.
+2. O cérebro devolve `AgentDecision(AgentId, AgentAction)`. `AgentAction` é uma hierarquia fechada: `Rest`, `Eat`, `Work`, `Buy` (MoveTo/Talk/Steal entram com o grafo de lugares). Com LLM, essa hierarquia vira o JSON schema da tool call.
+3. `World.Step(decisions)` ordena as decisões por `AgentId` (a ordem de chegada não pode importar) e embaralha com a seed.
+4. Para cada uma: agente inexistente → `UnknownAgent`; morto → `AgentNotAlive`; mais de uma proposta do mesmo agente → todas `DuplicateDecision`; energia 0 e ação diferente de `Rest` → `Exhausted`, e `Rest` é aplicado no lugar.
+5. `ActionRules.Validate` (função pura) confere a regra da ação; se passar, `ActionRules.Apply` muda o estado e devolve o evento.
+
+| Ação | Regra (rejeição) | Efeito |
+|---|---|---|
+| `Rest` | sempre válida | Energy +10 |
+| `Eat` | Food ≥ 1 (`NoFood`) | Food −1, Hunger −30 |
+| `Work` | Energy ≥ 8 (`TooTired`) | Money +10, Energy −8 |
+| `Buy` | Money ≥ 5 (`InsufficientMoney`); estoque ≥ 1 (`OutOfStock`) | Money −5 para o mercado, Food +1, estoque −1 |
+
+6. O motivo da rejeição fica em `Agent.LastRejection` e aparece em `Perceive()` no tick seguinte; é limpo no início de cada tick.
+
+Dado real (seed 42, tick 1): a ordem embaralhada foi agent-5, agent-4, agent-1, agent-2, agent-3 — `Worked { Tick = 1, AgentId = agent-5, Earned = 10, Money = 48, Energy = 74 }`. Exemplo de rejeição (teste): dois agentes compram com estoque 1 → um `FoodBought`, o outro `ActionRejected { Action = Buy { }, Reason = OutOfStock }`.
+
+**Onde está no projeto:** `src/Demiurge.Engine/Actions/AgentAction.cs`, `Actions/ActionRules.cs`, `Perception.cs`, `World.cs` (`Perceive`, `ResolveDecisions`); testes em `tests/Demiurge.Engine.Tests/AuthoritativeEngineTests.cs`.
+
+**Por que usamos:** (1) invariantes num só lugar — dinheiro nunca negativo, comida não surge do nada — mesmo com um LLM que alucina; (2) determinismo — a sorte é sorteada no engine com a seed; (3) segurança — um sussurro/prompt injection influencia a escolha, mas não quebra regras. Requisito de arquitetura (regra 1), não dor medida.
+
+**Alternativas e trade-offs:**
+- *LLM devolve o novo estado* (`"money": 50`): sem invariantes, sem replay. Descartado.
+- *Tools com efeito colateral* (comum em frameworks de agentes): cada tool muta na hora; sem resolução simultânea por tick e com validação espalhada. Descartado.
+- *LLM como mestre do jogo* (Concordia, DeepMind): um LLM resolve as ações em texto livre. Expressivo, mas não determinístico nem verificável. Descartado por ora; pode voltar para ações que o schema não cobre.
+
+**Limitações conhecidas:** o agente só pode fazer o que o schema prevê — comportamento novo exige ação nova no engine (o preço da verificabilidade). A rejeição informa só o motivo, não como corrigir. Observação da primeira rodada (seed 42, 300 ticks, política de teste): zero rejeições, zero mortes e dinheiro acumulando até ~800 por agente — a economia está generosa demais; vira pressão a criar quando a dor aparecer (ex.: `RESOURCE_COLLAPSE` ou escassez do modo deus).
+
+**Referências:** Vezhnevets et al., *Generative agent-based modeling with actions grounded in physical, social, or digital space using Concordia* (DeepMind, 2023); Yao et al., *ReAct* (2022); documentação de tool calling e structured outputs dos providers.
