@@ -135,3 +135,22 @@ Explicabilidade. Para qualquer decisão consigo mostrar "foi ao mercado porque G
 
 **[Projeto] Já aconteceu de a medição contradizer o seu plano?** (ADR-005)
 Sim. O roadmap dizia que o cérebro de regras geraria "paradoxo da fome" (morrer com dinheiro e comida disponível) e loops de repetição, e que isso justificaria o LLM. Em 10 seeds, as duas deram zero. A falha real foi oscilação: o objetivo mudava em 55% das decisões e o agente passava a vida viajando. Criei a dor `GOAL_OSCILLATION` e mudei o gatilho da etapa 2 para as dores efetivamente medidas. Também percebi que esses números vinham de um script fora do repo e os marquei como provisórios até os detectores os reproduzirem com um comando.
+
+---
+
+## Dores e observabilidade
+
+**[Fundamentos] O que é observabilidade e como ela aparece no seu projeto?**
+É conseguir responder "o que está acontecendo e por quê" só com os dados que o sistema emite. No DEMIURGE há três fontes: o log de eventos (o que aconteceu), o `TickOutcome` (falhas de cérebro e duração) e as dores — sinais calculados por detectores ao fim de cada tick, agregados e ranqueados por severidade × episódios. A pergunta "por que tantos agentes morrem?" é respondida com `GOAL_OSCILLATION` em 8 de 10 seeds, não com uma opinião.
+
+**[Projeto] Como seus detectores medem um cérebro de LLM, se não sabem o que ele "pensa"?**
+Eles só olham o observável: eventos, decisões enviadas, falhas e o snapshot do mundo. Por isso a oscilação não é medida como "trocou de objetivo" — objetivo é interno, e um LLM nem tem um explícito —, mas como "chegou a um lugar e partiu sem fazer nada lá". Isso vale igual para regras e para LLM, o que torna a comparação da etapa 2 justa.
+
+**[Profundidade] Por que disparo por borda e não por nível?**
+Uma condição como "48 ticks sem conversar" fica verdadeira por centenas de ticks. Por nível, gera um sinal por agente por tick — 5 agentes × 950 ticks soterram qualquer dor rara. Por borda, o sinal sai quando a condição começa e o detector se rearma quando ela termina; `Count` passa a ser número de episódios. É o mesmo raciocínio dos alertas do Prometheus, que notificam na transição de estado, não a cada avaliação.
+
+**[Projeto] Como você garante que a medição é reproduzível?**
+Duas garantias. Determinismo: a mesma seed produz as mesmas dores (há um teste que roda 300 ticks duas vezes e compara os sinais). Ferramenta: `dotnet run --project tools/Demiurge.Probe -- --brain rules --seeds 1-10 --ticks 1000` roda o mesmo caminho do harness, em memória, e imprime a tabela. Antes disso eu tinha números de um script descartável — marquei como provisórios até a ferramenta reproduzi-los.
+
+**[Profundidade] Um detector com bug pode derrubar a simulação?**
+Não. O `TickRunner` executa cada detector dentro de try/catch; se um lança exceção, ele é pulado naquele tick e a falha vira um sinal `TICK_EXCEPTION` com a mitigação "Detector skipped for this tick". Observabilidade não pode ser um ponto de falha do sistema observado.

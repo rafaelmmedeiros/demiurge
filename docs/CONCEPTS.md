@@ -226,7 +226,7 @@ Dado real (teste): com o cérebro do agent-2 lançando `InvalidOperationExceptio
 
 Exemplo (teste): no Trabalho, Hunger 72, Energy 40, Food 0, Money 12 → `GetFood 62`, `Work 58`, `Rest 60` → `MoveTo(market)`.
 
-**Medição real — provisória** (1000 ticks, seeds 1–10, 5 agentes; feita com um script fora do repositório, será refeita pelos detectores do conceito 8 com comando reproduzível — ADR-005):
+**Medição real** (1000 ticks, seeds 1–10, 5 agentes). Primeira versão feita com script fora do repositório; mortes e dores reproduzidas pelos detectores com `dotnet run --project tools/Demiurge.Probe -- --brain rules --seeds 1-10 --ticks 1000 --agents 5` (ver *Harness, observabilidade e detectores de dor*). As linhas de troca de objetivo e trabalho por viagem são métricas internas do script original, não reproduzidas pela ferramenta:
 
 | Sinal | Resultado |
 |---|---|
@@ -256,3 +256,55 @@ O modo de falha é **oscilação de objetivo** (*dithering*): cada `Work` derrub
 **Limitações conhecidas:** curvas lineares e fixas; sem horizonte (não considera o custo da viagem nem o que vem depois); oscila sem histerese; mesmos pesos para todos (personalidades viriam de pesos por agente); conhece só 4 objetivos — nada social.
 
 **Referências:** Dave Mark, *Behavioral Mathematics for Game AI* (2009); Kevin Dill, "Introducing GAIA" / Infinite Axis Utility System (GDC 2010–2015); Jeff Orkin, *Three States and a Plan: The A.I. of F.E.A.R.* (GDC 2006) para GOAP; Damian Isla, *Handling Complexity in the Halo 2 AI* (GDC 2005) para behavior trees.
+
+---
+
+## Harness, observabilidade e detectores de dor
+**Definição:** *harness* é tudo em volta do engine que mantém a simulação viva e observável (laço, persistência, medição, mitigação). *Observabilidade* é responder "o que está acontecendo e por quê" só com os dados que o sistema emite. Uma *dor* é um sinal medido sobre esses dados, nunca uma opinião.
+
+**Como funciona:**
+1. Ao fim de cada tick, o `TickRunner` monta um `TickContext`: eventos, decisões enviadas, falhas de cérebro, duração (relógio de parede via `TimeProvider`), intervalo do tick, snapshot depois do tick e config. O contrato ficou `IPainDetector.Inspect(TickContext)` (o original recebia só `TickReport`, que não tem falhas nem duração).
+2. Cada detector guarda a própria janela de histórico e olha só o observável — nunca o "objetivo" interno de um cérebro —, então mede regras e LLM do mesmo jeito.
+3. **Disparo por borda** (`EdgeTrigger`): o sinal sai quando a condição passa de falsa para verdadeira e se rearma quando volta a falsa. `Count` = episódios. Sem isso, `NO_SOCIAL_CONTACT` geraria um sinal por agente por tick.
+4. `PainRegistry` agrega por código: `Count`, `FirstTick`, `LastTick`, maior severidade, última amostra, mitigação, `Status` (técnica com mitigação → `Mitigated`; comportamental → `Open`; `Resolved` que volta → `Open`). Ranking por `Severity × Count`. Com store, cada agregado alterado vai para a tabela `pains` (upsert — é agregado, não evento).
+5. Um detector que lança exceção é pulado e vira `TICK_EXCEPTION`; nunca derruba o tick.
+
+| Dor | Sinal | Sev. |
+|---|---|---|
+| `STARVATION_PARADOX` | morreu de fome com Money ≥ preço e estoque ≥ 1 | 5 |
+| `RESOURCE_COLLAPSE` | ≥ 50% da população inicial morta (5) / Gini do dinheiro dos vivos > 0,6 (3) | 5/3 |
+| `GOAL_OSCILLATION` | ≥ 5 chegadas resolvidas nos últimos 50 ticks e > 40% "chegou e partiu sem agir" | 3 |
+| `REPETITION_LOOP` | mesma ação proposta 8 ticks seguidos sem nenhum recurso melhorar tick a tick | 3 |
+| `ACTION_REJECTION_RATE` | > 20% das últimas 50 decisões rejeitadas (mín. 10) | 2 |
+| `NO_SOCIAL_CONTACT` | 48 ticks sem falar nem ouvir, com outro agente vivo | 2 |
+| `TICK_EXCEPTION` | cérebro lançou exceção ou devolveu null → `Mitigated` | 4 |
+| `TICK_OVERRUN` | tick > intervalo, ou cérebro estourou o prazo → `Mitigated` | 3 |
+
+`GOAL_OSCILLATION` é a versão observável de "trocou de objetivo antes de concluir": uma chegada é desperdiçada quando o próximo evento do agente é `TravelStarted` saindo dali, sem `Worked`/`FoodBought`/`Rested`/`Ate`/`Talked`/`Stole` antes.
+
+**Medição reproduzível** — `dotnet run --project tools/Demiurge.Probe -- --brain rules --seeds 1-10 --ticks 1000 --agents 5` (4 s, mesmo caminho do harness, sem SQLite):
+```
+seed | deaths | talks | pains (code×episodes)
+   1 |      3 |     0 | RESOURCE_COLLAPSE×4, NO_SOCIAL_CONTACT×5
+   2 |      5 |     0 | GOAL_OSCILLATION×22, NO_SOCIAL_CONTACT×5, RESOURCE_COLLAPSE×1
+   ...
+code                   | seeds | episodes | earliest tick | severity
+GOAL_OSCILLATION       |  8/10 |      126 |            16 |        3
+NO_SOCIAL_CONTACT      | 10/10 |       50 |            48 |        2
+RESOURCE_COLLAPSE      |  9/10 |       17 |           114 |        5
+```
+`STARVATION_PARADOX`, `REPETITION_LOOP` e `ACTION_REJECTION_RATE`: zero em todas as seeds — confirma o ADR-005. As três dores do novo gatilho da etapa 2 estão medidas.
+
+**Onde está no projeto:** `src/Demiurge.Harness/Pains/` (`PainModel.cs`: `TickContext`, `IPainDetector`, `PainSignal`, `Pain`, `EdgeTrigger`; `TechnicalDetectors.cs`; `BehaviorDetectors.cs`; `PainRegistry.cs`), `TickRunner.cs` (`Detect`), `ISimulation.cs` (`InMemorySimulation`), `Persistence/SqliteEventStore.cs` (`SavePains`, `LoadPains`); `tools/Demiurge.Probe/Program.cs`. Testes: `tests/Demiurge.Harness.Tests/PainDetectorTests.cs` (cada detector com cenário que dispara e, quando útil, um que não dispara; agregação e ranking; persistência; mesma seed = mesmas dores).
+
+**Por que usamos:** seção 6 do CLAUDE.md — o harness precisa sentir o que está ruim, mitigar em runtime e expor o resto para a próxima sessão. Sem medição, a escolha da próxima etapa seria opinião (o ADR-005 nasceu justamente de uma suposição errada).
+
+**Alternativas e trade-offs:**
+- *Só logs*: texto; exigiria parsing para virar sinal, sem agregação nem ranking.
+- *OpenTelemetry (métricas/traces) agora*: padrão da indústria, mas é a etapa 8; sem dor que justifique.
+- *Disparo por nível*: um sinal por tick enquanto a condição dura — afoga as dores raras.
+- *Detectores lendo o estado interno do cérebro* (ex.: o objetivo escolhido): mais preciso para regras, impossível para LLM; quebraria a comparação entre cérebros.
+
+**Limitações conhecidas:** limites são chutes iniciais; o detector usa o snapshot do fim do tick (aproximação para "estado no momento da morte"); a janela dos detectores fica em memória e se perde num restart (os agregados persistem); rodam dentro do tick e somam à sua duração; `RESOURCE_COLLAPSE` por Gini pode oscilar perto do limite e contar vários episódios.
+
+**Referências:** Charity Majors, Liz Fong-Jones, George Miranda, *Observability Engineering* (O'Reilly, 2022); Google SRE Book, cap. 6 *Monitoring Distributed Systems*; Prometheus docs, *Alerting rules* (`for:` e transições de estado).

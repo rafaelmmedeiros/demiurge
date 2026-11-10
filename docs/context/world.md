@@ -67,9 +67,10 @@ public interface IAgentBrain
     Task<AgentAction> DecideAsync(Perception perception, CancellationToken ct);
 }
 
+// Demiurge.Harness.Pains. TickContext = events + decisions + brain failures + duration + snapshot after.
 public interface IPainDetector
 {
-    IEnumerable<PainSignal> Inspect(TickReport report);
+    IEnumerable<PainSignal> Inspect(TickContext ctx);
 }
 ```
 

@@ -15,7 +15,9 @@ A measured signal, never an opinion.
 | `Mitigation` | what the runtime did automatically |
 | `Status` | `Open`, `Mitigated`, `Resolved` |
 
-Detectors implement `IPainDetector` (see `world.md`), run at the end of every tick; pains are persisted in the `pains` table and exposed at `/api/pains` (sorted by severity × frequency) and on the dashboard. `Knowledge` pains live in `docs/PAINS.md`, not in the runtime.
+Detectors implement `IPainDetector.Inspect(TickContext)` (see `world.md`), run at the end of every tick inside `TickRunner`, are **edge-triggered** (one signal per episode) and read only observable data (events, decisions, failures, snapshot) — never a brain's internals. `PainRegistry` aggregates by code, ranks by `Severity × Count` and persists to the `pains` table; exposed at `/api/pains` and on the dashboard. Thresholds and code: `src/Demiurge.Harness/Pains/`, table in `docs/CONCEPTS.md`.
+
+Batch measurement (reproducible): `dotnet run --project tools/Demiurge.Probe -- --brain rules --seeds 1-10 --ticks 1000 --agents 5`. `Knowledge` pains live in `docs/PAINS.md`, not in the runtime.
 
 ## Technical pains (the harness)
 

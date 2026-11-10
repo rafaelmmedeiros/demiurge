@@ -3,41 +3,57 @@ using Demiurge.Engine;
 using Demiurge.Engine.Actions;
 using Demiurge.Engine.Domain;
 using Demiurge.Engine.Events;
+using Demiurge.Harness.Pains;
 
 namespace Demiurge.Harness;
 
+/// <summary>Timing of the loop. Decision deadline defaults to 80% of the tick interval.</summary>
+public sealed record TickRunnerOptions(TimeSpan TickInterval, TimeSpan DecisionTimeout)
+{
+    public static TickRunnerOptions FromInterval(TimeSpan interval) => new(interval, interval * 0.8);
+}
+
 /// <summary>
 /// Runs the agent loop for one tick: perceive → decide (all brains in parallel, with a deadline)
-/// → act (World.Step validates and applies). A failing or slow brain only idles its own agent
-/// for that tick; the tick always closes (CLAUDE.md rule 6).
-/// Concept: Agent and the perception → decision → action loop —
-///          docs/CONCEPTS.md#agente-e-o-laço-percepção--decisão--ação
+/// → act (World.Step validates and applies) → measure (pain detectors). A failing or slow brain
+/// only idles its own agent for that tick; the tick always closes (CLAUDE.md rule 6).
+/// Concepts: Agent and the perception → decision → action loop —
+///           docs/CONCEPTS.md#agente-e-o-laço-percepção--decisão--ação ;
+///           Pain detectors — docs/CONCEPTS.md#harness-observabilidade-e-detectores-de-dor
 /// </summary>
 public sealed class TickRunner
 {
-    private readonly SimulationSession _session;
+    private readonly ISimulation _simulation;
     private readonly Func<AgentId, IAgentBrain> _brainFactory;
     private readonly Dictionary<AgentId, IAgentBrain> _brains = []; // lookups only, never iterated
-    private readonly TimeSpan _decisionTimeout;
+    private readonly TickRunnerOptions _options;
     private readonly TimeProvider _clock;
+    private readonly IReadOnlyList<IPainDetector> _detectors;
 
     public TickRunner(
-        SimulationSession session,
+        ISimulation simulation,
         Func<AgentId, IAgentBrain> brainFactory,
-        TimeSpan decisionTimeout,
-        TimeProvider clock)
+        TickRunnerOptions options,
+        TimeProvider clock,
+        IReadOnlyList<IPainDetector>? detectors = null,
+        PainRegistry? pains = null)
     {
-        _session = session;
+        _simulation = simulation;
         _brainFactory = brainFactory;
-        _decisionTimeout = decisionTimeout;
+        _options = options;
         _clock = clock;
+        _detectors = detectors ?? [];
+        Pains = pains ?? new PainRegistry();
     }
 
-    public SimulationSession Session => _session;
+    public ISimulation Simulation => _simulation;
+
+    public PainRegistry Pains { get; }
 
     public async Task<TickOutcome> RunTickAsync(CancellationToken ct = default)
     {
-        var world = _session.World;
+        long started = _clock.GetTimestamp();
+        var world = _simulation.World;
 
         // Only agents that can act are asked: alive and standing at a place (in transit = no decision).
         var actors = world.Agents
@@ -47,7 +63,7 @@ public sealed class TickRunner
 
         // Wall-clock deadline lives here, in the harness, never in the engine. A timeout changes
         // which decisions reach the engine, but the engine still records every result as events.
-        using var timeout = new CancellationTokenSource(_decisionTimeout, _clock);
+        using var timeout = new CancellationTokenSource(_options.DecisionTimeout, _clock);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
 
         var results = await Task.WhenAll(actors.Select(a => DecideSafelyAsync(a.Id, a.Perception, linked.Token)));
@@ -60,7 +76,37 @@ public sealed class TickRunner
             .ToList();
         var failures = results.Where(r => r.Failure is not null).Select(r => r.Failure!).ToList();
 
-        return new TickOutcome(_session.Step(decisions), failures);
+        var report = _simulation.Step(decisions);
+        var duration = _clock.GetElapsedTime(started);
+
+        var context = new TickContext(report, decisions, failures, duration, _options.TickInterval,
+            world.ToSnapshot(), world.Config);
+        var signals = Detect(context);
+        Pains.Record(signals);
+
+        return new TickOutcome(report, failures, duration, signals);
+    }
+
+    /// <summary>Runs every detector; a broken detector is skipped, it never breaks the tick.</summary>
+    private List<PainSignal> Detect(TickContext context)
+    {
+        var signals = new List<PainSignal>();
+        foreach (var detector in _detectors)
+        {
+            try
+            {
+                signals.AddRange(detector.Inspect(context));
+            }
+            catch (Exception ex)
+            {
+                signals.Add(new PainSignal(
+                    PainCodes.TickException, PainCategory.Technical, 4, context.Tick, null,
+                    $"Detector {detector.GetType().Name} failed at tick {context.Tick}: {ex.GetType().Name}: {ex.Message}",
+                    "Detector skipped for this tick."));
+            }
+        }
+
+        return signals;
     }
 
     private async Task<DecisionResult> DecideSafelyAsync(AgentId id, Perception perception, CancellationToken token)
@@ -75,7 +121,8 @@ public sealed class TickRunner
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
-            return DecisionResult.Failed(id, BrainFailureKind.Timeout, $"No decision within {_decisionTimeout.TotalMilliseconds} ms.");
+            return DecisionResult.Failed(id, BrainFailureKind.Timeout,
+                $"No decision within {_options.DecisionTimeout.TotalMilliseconds:F0} ms.");
         }
         catch (Exception ex)
         {
@@ -97,8 +144,12 @@ public sealed class TickRunner
     }
 }
 
-/// <summary>What a tick produced in the world, plus what went wrong in the brains (input for pain detectors).</summary>
-public sealed record TickOutcome(TickReport Report, IReadOnlyList<BrainFailure> Failures);
+/// <summary>What a tick produced: world events, brain failures, wall-clock duration, pain signals.</summary>
+public sealed record TickOutcome(
+    TickReport Report,
+    IReadOnlyList<BrainFailure> Failures,
+    TimeSpan Duration,
+    IReadOnlyList<PainSignal> Pains);
 
 public sealed record BrainFailure(AgentId AgentId, BrainFailureKind Kind, string Detail);
 

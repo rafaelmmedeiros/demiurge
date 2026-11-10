@@ -11,7 +11,7 @@ namespace Demiurge.Harness;
 /// every N ticks. Resume = latest snapshot + events after it (or full replay if there is none).
 /// Concept: Event sourcing — docs/CONCEPTS.md#event-sourcing
 /// </summary>
-public sealed class SimulationSession
+public sealed class SimulationSession : ISimulation
 {
     public const int DefaultSnapshotEvery = 100;
 
@@ -30,6 +30,8 @@ public sealed class SimulationSession
     public long WorldId { get; }
 
     public World World { get; }
+
+    public SqliteEventStore Store => _store;
 
     /// <summary>Creates a new world (new WorldId) and persists its genesis.</summary>
     public static SimulationSession Start(

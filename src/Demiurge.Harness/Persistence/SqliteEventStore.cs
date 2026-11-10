@@ -4,6 +4,7 @@ using Dapper;
 using Demiurge.Engine;
 using Demiurge.Engine.Domain;
 using Demiurge.Engine.Events;
+using Demiurge.Harness.Pains;
 using Microsoft.Data.Sqlite;
 
 namespace Demiurge.Harness.Persistence;
@@ -35,6 +36,20 @@ public sealed class SqliteEventStore
             PRIMARY KEY (world_id, seq)
         );
         CREATE INDEX IF NOT EXISTS ix_events_world_tick ON events (world_id, tick);
+
+        CREATE TABLE IF NOT EXISTS pains (
+            world_id   INTEGER NOT NULL,
+            code       TEXT    NOT NULL,
+            category   TEXT    NOT NULL,
+            severity   INTEGER NOT NULL,
+            count      INTEGER NOT NULL,
+            first_tick INTEGER NOT NULL,
+            last_tick  INTEGER NOT NULL,
+            sample     TEXT    NOT NULL,
+            mitigation TEXT,
+            status     TEXT    NOT NULL,
+            PRIMARY KEY (world_id, code)  -- an aggregate, updated in place (unlike events)
+        );
 
         CREATE TABLE IF NOT EXISTS snapshots (
             world_id INTEGER NOT NULL,
@@ -137,6 +152,60 @@ public sealed class SqliteEventStore
         var json = connection.QuerySingleOrDefault<string>(
             "SELECT state FROM snapshots WHERE world_id = @worldId ORDER BY tick DESC LIMIT 1", new { worldId });
         return json is null ? null : JsonSerializer.Deserialize<WorldSnapshot>(json, EventJson.Options);
+    }
+
+    /// <summary>Upserts pain aggregates (one row per world and code).</summary>
+    public void SavePains(long worldId, IEnumerable<Pain> pains)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        connection.Execute(
+            """
+            INSERT INTO pains (world_id, code, category, severity, count, first_tick, last_tick, sample, mitigation, status)
+            VALUES (@WorldId, @Code, @Category, @Severity, @Count, @FirstTick, @LastTick, @Sample, @Mitigation, @Status)
+            ON CONFLICT (world_id, code) DO UPDATE SET
+                category = excluded.category, severity = excluded.severity, count = excluded.count,
+                first_tick = excluded.first_tick, last_tick = excluded.last_tick, sample = excluded.sample,
+                mitigation = excluded.mitigation, status = excluded.status
+            """,
+            pains.Select(p => new
+            {
+                WorldId = worldId, p.Code, Category = p.Category.ToString(), p.Severity, p.Count,
+                p.FirstTick, p.LastTick, p.Sample, p.Mitigation, Status = p.Status.ToString(),
+            }),
+            transaction);
+        transaction.Commit();
+    }
+
+    public IReadOnlyList<Pain> LoadPains(long worldId)
+    {
+        using var connection = Open();
+        return connection
+            .Query<PainRow>(
+                """
+                SELECT code AS Code, category AS Category, severity AS Severity, count AS Count,
+                       first_tick AS FirstTick, last_tick AS LastTick, sample AS Sample,
+                       mitigation AS Mitigation, status AS Status
+                FROM pains WHERE world_id = @worldId ORDER BY code
+                """,
+                new { worldId })
+            .Select(r => new Pain(
+                r.Code, Enum.Parse<PainCategory>(r.Category), (int)r.Severity, (int)r.Count,
+                r.FirstTick, r.LastTick, r.Sample, r.Mitigation, Enum.Parse<PainStatus>(r.Status)))
+            .ToList();
+    }
+
+    private sealed class PainRow
+    {
+        public string Code { get; set; } = "";
+        public string Category { get; set; } = "";
+        public long Severity { get; set; }
+        public long Count { get; set; }
+        public long FirstTick { get; set; }
+        public long LastTick { get; set; }
+        public string Sample { get; set; } = "";
+        public string? Mitigation { get; set; }
+        public string Status { get; set; } = "";
     }
 
     private SqliteConnection Open()

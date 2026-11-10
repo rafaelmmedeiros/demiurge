@@ -29,11 +29,12 @@ Formato: o que foi feito · decisões · pendências.
 - Conceito 6 (agente e laço) explicado, aprovado e implementado: `Demiurge.Agents` com `IAgentBrain` devolvendo `AgentAction` (contrato ajustado com ok do líder), `TickRunner` no harness (cérebros em paralelo, prazo com `TimeProvider`, falhas isoladas como `BrainFailure`). 63 testes verdes, estáveis em 3 repetições.
 - Conceito 7 (rule-based / utility AI) explicado, aprovado e implementado: `RuleBasedBrain` com 4 objetivos pontuados, notas públicas (`Score`), fraco de propósito. Novo projeto `tests/Demiurge.Agents.Tests`. 71 testes verdes. Medição em 10 seeds × 1000 ticks: 41/50 mortes, 0 paradoxo da fome, 0% rejeição, 0 conversas, 55% de troca de objetivo, 0,13 trabalho por viagem.
 - ADR-005 aprovado: nova dor `GOAL_OSCILLATION`; gatilho da etapa 2 = dores comportamentais medidas (`RESOURCE_COLLAPSE`, `GOAL_OSCILLATION`, `NO_SOCIAL_CONTACT`); medições reproduzíveis via detectores no conceito 8.
+- Conceito 8 (harness, observabilidade, detectores) explicado, aprovado e implementado: `IPainDetector.Inspect(TickContext)` (contrato ajustado com ok do líder), 8 detectores com disparo por borda, `PainRegistry` com ranking e tabela `pains`, `InMemorySimulation`, ferramenta `tools/Demiurge.Probe`. Medição reproduzida: `GOAL_OSCILLATION` 8/10, `NO_SOCIAL_CONTACT` 10/10, `RESOURCE_COLLAPSE` 9/10 seeds; paradoxo, loop e rejeição = 0. Criado `docs/PAINS.md`. 86 testes verdes.
 - Revisão da stack (ADR-003): .NET 10 LTS (11 saiu hoje, mesmo fim de suporte), `.slnx`, xUnit v3 4.0.3 em Microsoft Testing Platform v2, Central Package Management.
 
 **Pendências**
 - Líder revisar o rascunho do pitch (`VISION.md` §8).
 - Ainda não existe `docker-compose.yml`/Host: a regra 5 (sobe com um comando) passa a valer quando o Host entrar (conceito 9 / dashboard). Avaliar antecipar um Host mínimo com `/health`.
-- Próximo conceito: 8 — harness, observabilidade e detectores de dor. Ordem em `docs/context/stage-1.md`.
-- Medições dos conceitos 3–7 vieram de um console descartável no scratchpad (engine em memória, sem `TickRunner`, sem SQLite, sem LLM). Números do conceito 7 marcados como provisórios; refazer com os detectores via comando no repositório.
+- Próximo conceito: 9 — dashboard (Host ASP.NET Core, SignalR, canvas, i18n) + Docker (`docker compose up`, regra 5). Depois: arguição da etapa 1.
+- Medições dos conceitos 3–6 vieram de um console descartável no scratchpad (exemplos ilustrativos). As do conceito 7 foram reproduzidas pelo `tools/Demiurge.Probe`.
 - Economia: sem espaço, generosa demais (~800 de dinheiro por agente). Com o grafo, a mesma política simples entra em colapso: 4 de 5 mortos em 300 ticks, presos no mercado sem dinheiro e exaustos (`InsufficientMoney` 56×, `Exhausted` 73×) — só o ladrão sobrevive. É comportamento da política, não bug do engine; é o tipo de sinal que os detectores `REPETITION_LOOP`/`ACTION_REJECTION_RATE` devem capturar.

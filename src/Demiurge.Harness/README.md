@@ -14,3 +14,4 @@
 **Concepts implemented** (see `docs/CONCEPTS.md`):
 - Event sourcing — `Persistence/SqliteEventStore`, `Persistence/EventJson`, `SimulationSession`
 - Agent loop (perceive → decide in parallel with deadline → act), failure isolation — `TickRunner`
+- Harness, observability and pain detectors — `Pains/` (`TickContext`, detectors, `EdgeTrigger`, `PainRegistry`), `ISimulation`/`InMemorySimulation`

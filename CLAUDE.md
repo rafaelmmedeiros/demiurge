@@ -53,7 +53,8 @@ src/Demiurge.Engine/    world, entities, actions, validation, tick — zero IO/L
 src/Demiurge.Agents/    IAgentBrain, RuleBasedBrain, LlmBrain, perception, prompts
 src/Demiurge.Harness/   tick orchestration, pain detectors, mitigations, persistence
 src/Demiurge.Host/      ASP.NET Core: API, SignalR hub, wwwroot (dashboard), DI
-tests/                  xUnit: Engine.Tests, Harness.Tests
+tools/Demiurge.Probe/   batch pain measurement (N seeds × T ticks)
+tests/                  xUnit: Engine.Tests, Agents.Tests, Harness.Tests
 docs/                   learning docs (pt-BR) + docs/context/ (Claude context, en)
 ```
 
@@ -67,4 +68,5 @@ docker compose down -v              # stop and wipe the world
 docker compose --profile llm up -d  # also starts Ollama
 dotnet build && dotnet test
 dotnet run --project src/Demiurge.Host   # outside Docker, port 8080
+dotnet run --project tools/Demiurge.Probe -- --brain rules --seeds 1-10 --ticks 1000   # measure pains
 ```

@@ -35,6 +35,8 @@ Baseline and versions reviewed in `docs/DECISIONS.md` ADR-003.
 │   ├── Demiurge.Agents/        # IAgentBrain, RuleBasedBrain, LlmBrain, perception, prompts
 │   ├── Demiurge.Harness/       # tick orchestration, pain detectors, mitigations, persistence
 │   └── Demiurge.Host/          # ASP.NET Core: API, SignalR hub, wwwroot, DI composition
+├── tools/
+│   └── Demiurge.Probe/         # batch pain measurement: N seeds × T ticks, in memory
 └── tests/
     ├── Demiurge.Engine.Tests/
     ├── Demiurge.Agents.Tests/

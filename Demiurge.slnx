@@ -9,4 +9,7 @@
     <Project Path="tests/Demiurge.Engine.Tests/Demiurge.Engine.Tests.csproj" />
     <Project Path="tests/Demiurge.Harness.Tests/Demiurge.Harness.Tests.csproj" />
   </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Demiurge.Probe/Demiurge.Probe.csproj" />
+  </Folder>
 </Solution>

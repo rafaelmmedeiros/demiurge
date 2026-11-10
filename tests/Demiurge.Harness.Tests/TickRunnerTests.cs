@@ -48,7 +48,7 @@ public class TickRunnerTests
 
     private static TickRunner Runner(TempDatabase db, Func<AgentId, IAgentBrain> brains, int timeoutMs = 1000) =>
         new(SimulationSession.Start(db.Store, Config, TimeProvider.System), brains,
-            TimeSpan.FromMilliseconds(timeoutMs), TimeProvider.System);
+            new TickRunnerOptions(TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(timeoutMs)), TimeProvider.System);
 
     // ---------- tests ----------
 
@@ -96,7 +96,7 @@ public class TickRunnerTests
 
         Assert.True(clock.ElapsedMilliseconds < 2000, $"tick took {clock.ElapsedMilliseconds} ms");
         Assert.Equal(BrainFailureKind.Timeout, Assert.Single(outcome.Failures).Kind);
-        Assert.Equal(1, runner.Session.World.Tick);
+        Assert.Equal(1, runner.Simulation.World.Tick);
     }
 
     [Fact]
